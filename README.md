@@ -1,19 +1,22 @@
 # Wine Cellar Tracker for Home Assistant
 
-A custom Home Assistant integration for managing your wine collection. Track bottles by location, scan barcodes to auto-fill wine details via Vivino, and visualize your cellar layout with an interactive Lovelace card.
+A custom Home Assistant integration for managing your wine collection. Track bottles by location, scan barcodes with your camera, recognize wine labels with AI, rate wines, and visualize your cellar layout with an interactive Lovelace card.
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
 
 ## Features
 
 - **Visual Cabinet Layout** — Interactive grid view of your wine cabinets with color-coded bottles by type (red, white, rose, sparkling, dessert)
-- **Barcode Scanning** — Scan wine barcodes to automatically look up wine details from Vivino and Open Food Facts
+- **Camera Barcode Scanning** — Point your phone or tablet camera at a wine bottle barcode to auto-lookup details from Vivino and Open Food Facts
+- **AI Label Recognition** — Snap a photo of a wine label and let Google Gemini Vision identify the wine automatically (name, winery, vintage, type, region, country, grape variety)
+- **Ratings & Tasting Notes** — Rate wines with an interactive half-star widget (0.5-5.0) and record structured tasting notes (aroma, taste, finish, overall impression)
 - **Wine Search** — Search Vivino by name to find and add wines without a barcode
 - **Drag & Place** — Click any empty slot to place a new bottle, or move existing bottles between positions
 - **Bottom Zone Storage** — Dedicated box/case storage area below each cabinet grid
 - **Search & Filter** — Filter your collection by wine type, cabinet, or search by name/winery/region
 - **Statistics Dashboard** — Total bottles, capacity percentage, and breakdown by type and cabinet
 - **Home Assistant Sensors** — Entities for total bottles, capacity, and per-cabinet counts for use in automations
+- **Responsive Design** — Optimized layouts for phone, tablet, and desktop
 
 ## Installation
 
@@ -40,6 +43,15 @@ A custom Home Assistant integration for managing your wine collection. Track bot
 type: custom:wine-cellar-card
 title: Wine Cellar
 ```
+
+### AI Label Recognition (Optional)
+
+To enable the "Recognize Label" feature:
+
+1. Get a free API key from [Google AI Studio](https://aistudio.google.com/apikey)
+2. Go to **Settings > Devices & Services > Wine Cellar > Configure**
+3. Enter your Gemini API key
+4. The "Recognize Label" button will appear in the Add Wine dialog
 
 ## Default Cabinet Layout
 
