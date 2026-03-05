@@ -1,0 +1,277 @@
+import { LitElement, html, css, nothing } from "lit";
+import { customElement, property } from "lit/decorators.js";
+import { Cabinet, Wine, WINE_TYPE_COLORS, WineType } from "../models";
+import { sharedStyles } from "../styles";
+
+@customElement("cabinet-grid")
+export class CabinetGrid extends LitElement {
+  @property({ attribute: false }) cabinet!: Cabinet;
+  @property({ attribute: false }) wines: Wine[] = [];
+
+  static styles = [
+    sharedStyles,
+    css`
+      :host {
+        display: block;
+      }
+
+      .cabinet {
+        background: linear-gradient(135deg, #8b6914 0%, #c4973b 50%, #8b6914 100%);
+        border-radius: 12px;
+        padding: 8px;
+        box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.3),
+          0 4px 12px rgba(0, 0, 0, 0.2);
+      }
+
+      .cabinet-name {
+        text-align: center;
+        color: #f5e6ca;
+        font-size: 0.8em;
+        font-weight: 600;
+        padding: 4px 0;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+      }
+
+      .grid-inner {
+        background: linear-gradient(180deg, #1a1a3a 0%, #0d0d2b 100%);
+        border-radius: 8px;
+        padding: 6px;
+        position: relative;
+        overflow: hidden;
+      }
+
+      /* Blue LED glow effect */
+      .grid-inner::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: radial-gradient(
+          ellipse at center,
+          rgba(50, 100, 255, 0.15) 0%,
+          transparent 70%
+        );
+        pointer-events: none;
+      }
+
+      .row {
+        display: flex;
+        gap: 2px;
+        margin-bottom: 2px;
+        position: relative;
+      }
+
+      /* Scalloped shelf appearance */
+      .row::after {
+        content: "";
+        position: absolute;
+        bottom: -1px;
+        left: 0;
+        right: 0;
+        height: 3px;
+        background: linear-gradient(90deg, #6b5010 0%, #a07828 50%, #6b5010 100%);
+        border-radius: 0 0 2px 2px;
+      }
+
+      .cell {
+        flex: 1;
+        aspect-ratio: 1;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: all 0.2s;
+        position: relative;
+        min-width: 0;
+        z-index: 1;
+      }
+
+      .cell.empty {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px dashed rgba(255, 255, 255, 0.15);
+      }
+
+      .cell.empty:hover {
+        background: rgba(255, 255, 255, 0.12);
+        border-color: rgba(255, 255, 255, 0.3);
+      }
+
+      .cell.filled {
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4),
+          inset 0 -2px 4px rgba(0, 0, 0, 0.3),
+          0 0 8px rgba(50, 100, 255, 0.15);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+      }
+
+      .cell.filled:hover {
+        transform: scale(1.15);
+        z-index: 10;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5),
+          0 0 16px rgba(50, 100, 255, 0.3);
+      }
+
+      .cell .bottle-label {
+        position: absolute;
+        bottom: -14px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 6px;
+        color: rgba(255, 255, 255, 0.6);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 40px;
+        display: none;
+        pointer-events: none;
+      }
+
+      .cell.filled:hover .bottle-label {
+        display: block;
+      }
+
+      .bottom-zone {
+        margin-top: 8px;
+        background: linear-gradient(135deg, #6b5010 0%, #8b6914 100%);
+        border-radius: 6px;
+        padding: 8px;
+        min-height: 40px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        align-items: center;
+        cursor: pointer;
+        position: relative;
+        z-index: 1;
+      }
+
+      .bottom-zone-label {
+        font-size: 0.65em;
+        color: rgba(255, 255, 255, 0.6);
+        width: 100%;
+        text-align: center;
+      }
+
+      .zone-bottle {
+        width: 28px;
+        height: 28px;
+        border-radius: 4px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 8px;
+        color: #fff;
+        font-weight: 600;
+        cursor: pointer;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+        transition: transform 0.2s;
+      }
+
+      .zone-bottle:hover {
+        transform: scale(1.1);
+      }
+    `,
+  ];
+
+  private _getWineAt(row: number, col: number): Wine | undefined {
+    return this.wines.find(
+      (w) =>
+        w.cabinet_id === this.cabinet.id && w.row === row && w.col === col
+    );
+  }
+
+  private _getBottomZoneWines(): Wine[] {
+    return this.wines.filter(
+      (w) => w.cabinet_id === this.cabinet.id && w.zone === "bottom"
+    );
+  }
+
+  private _onCellClick(row: number, col: number, wine?: Wine) {
+    this.dispatchEvent(
+      new CustomEvent("cell-click", {
+        detail: {
+          cabinet: this.cabinet,
+          row,
+          col,
+          wine,
+        },
+        bubbles: true,
+        composed: true,
+      })
+    );
+  }
+
+  private _onZoneClick(wine?: Wine) {
+    this.dispatchEvent(
+      new CustomEvent("zone-click", {
+        detail: {
+          cabinet: this.cabinet,
+          zone: "bottom",
+          wine,
+        },
+        bubbles: true,
+        composed: true,
+      })
+    );
+  }
+
+  render() {
+    const { rows, cols } = this.cabinet;
+
+    return html`
+      <div class="cabinet">
+        <div class="cabinet-name">${this.cabinet.name}</div>
+        <div class="grid-inner">
+          ${Array.from({ length: rows }, (_, row) => html`
+            <div class="row">
+              ${Array.from({ length: cols }, (_, col) => {
+                const wine = this._getWineAt(row, col);
+                const bgColor = wine
+                  ? WINE_TYPE_COLORS[wine.type as WineType] || WINE_TYPE_COLORS.red
+                  : "transparent";
+                return html`
+                  <div
+                    class="cell ${wine ? "filled" : "empty"}"
+                    style=${wine ? `background: ${bgColor}` : ""}
+                    @click=${() => this._onCellClick(row, col, wine)}
+                    title=${wine ? `${wine.name} (${wine.vintage || "NV"})` : `Empty - Row ${row + 1}, Col ${col + 1}`}
+                  >
+                    ${wine
+                      ? html`<span class="bottle-label">${wine.vintage || "NV"}</span>`
+                      : nothing}
+                  </div>
+                `;
+              })}
+            </div>
+          `)}
+        </div>
+        ${this.cabinet.has_bottom_zone
+          ? html`
+              <div class="bottom-zone" @click=${() => this._onZoneClick()}>
+                <div class="bottom-zone-label">
+                  ${this.cabinet.bottom_zone_name}
+                </div>
+                ${this._getBottomZoneWines().map(
+                  (wine) => html`
+                    <div
+                      class="zone-bottle"
+                      style="background: ${WINE_TYPE_COLORS[wine.type as WineType] || WINE_TYPE_COLORS.red}"
+                      @click=${(e: Event) => {
+                        e.stopPropagation();
+                        this._onZoneClick(wine);
+                      }}
+                      title="${wine.name}"
+                    >
+                      ${(wine.vintage || "NV").toString().slice(-2)}
+                    </div>
+                  `
+                )}
+              </div>
+            `
+          : nothing}
+      </div>
+    `;
+  }
+}

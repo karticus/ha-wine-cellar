@@ -1,0 +1,271 @@
+"""WebSocket API for Wine Cellar frontend communication."""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+import voluptuous as vol
+
+from homeassistant.components import websocket_api
+from homeassistant.core import HomeAssistant, callback
+
+from .const import DOMAIN
+
+_LOGGER = logging.getLogger(__name__)
+
+
+def async_register_websocket_commands(hass: HomeAssistant) -> None:
+    """Register WebSocket commands."""
+    websocket_api.async_register_command(hass, ws_get_wines)
+    websocket_api.async_register_command(hass, ws_get_cabinets)
+    websocket_api.async_register_command(hass, ws_add_wine)
+    websocket_api.async_register_command(hass, ws_remove_wine)
+    websocket_api.async_register_command(hass, ws_update_wine)
+    websocket_api.async_register_command(hass, ws_move_wine)
+    websocket_api.async_register_command(hass, ws_lookup_barcode)
+    websocket_api.async_register_command(hass, ws_search_wine)
+    websocket_api.async_register_command(hass, ws_get_stats)
+    websocket_api.async_register_command(hass, ws_update_cabinet)
+    websocket_api.async_register_command(hass, ws_add_cabinet)
+    websocket_api.async_register_command(hass, ws_remove_cabinet)
+
+
+@websocket_api.websocket_command({vol.Required("type"): "wine_cellar/get_wines"})
+@callback
+def ws_get_wines(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Return all wines."""
+    storage = hass.data[DOMAIN]["storage"]
+    connection.send_result(msg["id"], {"wines": storage.wines})
+
+
+@websocket_api.websocket_command({vol.Required("type"): "wine_cellar/get_cabinets"})
+@callback
+def ws_get_cabinets(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Return all cabinets."""
+    storage = hass.data[DOMAIN]["storage"]
+    connection.send_result(msg["id"], {"cabinets": storage.cabinets})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "wine_cellar/add_wine",
+        vol.Required("wine"): dict,
+    }
+)
+@websocket_api.async_response
+async def ws_add_wine(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Add a new wine."""
+    storage = hass.data[DOMAIN]["storage"]
+    wine = storage.add_wine(msg["wine"])
+    await storage.async_save()
+    hass.bus.async_fire(f"{DOMAIN}_updated")
+    connection.send_result(msg["id"], {"wine": wine})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "wine_cellar/remove_wine",
+        vol.Required("wine_id"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_remove_wine(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Remove a wine by ID."""
+    storage = hass.data[DOMAIN]["storage"]
+    success = storage.remove_wine(msg["wine_id"])
+    if success:
+        await storage.async_save()
+        hass.bus.async_fire(f"{DOMAIN}_updated")
+    connection.send_result(msg["id"], {"success": success})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "wine_cellar/update_wine",
+        vol.Required("wine_id"): str,
+        vol.Required("updates"): dict,
+    }
+)
+@websocket_api.async_response
+async def ws_update_wine(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Update a wine's details."""
+    storage = hass.data[DOMAIN]["storage"]
+    wine = storage.update_wine(msg["wine_id"], msg["updates"])
+    if wine:
+        await storage.async_save()
+        hass.bus.async_fire(f"{DOMAIN}_updated")
+    connection.send_result(msg["id"], {"wine": wine})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "wine_cellar/move_wine",
+        vol.Required("wine_id"): str,
+        vol.Required("cabinet_id"): str,
+        vol.Optional("row"): int,
+        vol.Optional("col"): int,
+        vol.Optional("zone", default=""): str,
+    }
+)
+@websocket_api.async_response
+async def ws_move_wine(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Move a wine to a new location."""
+    storage = hass.data[DOMAIN]["storage"]
+    wine = storage.move_wine(
+        msg["wine_id"],
+        msg["cabinet_id"],
+        msg.get("row"),
+        msg.get("col"),
+        msg.get("zone", ""),
+    )
+    if wine:
+        await storage.async_save()
+        hass.bus.async_fire(f"{DOMAIN}_updated")
+    connection.send_result(msg["id"], {"wine": wine})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "wine_cellar/lookup_barcode",
+        vol.Required("barcode"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_lookup_barcode(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Look up wine info by barcode."""
+    storage = hass.data[DOMAIN]["storage"]
+    vivino = hass.data[DOMAIN]["vivino"]
+    barcode = msg["barcode"]
+
+    cached = storage.get_cached_barcode(barcode)
+    if cached:
+        connection.send_result(msg["id"], {"result": cached, "cached": True})
+        return
+
+    result = await vivino.lookup_barcode(barcode)
+    if result:
+        storage.cache_barcode(barcode, result)
+        await storage.async_save()
+    connection.send_result(msg["id"], {"result": result, "cached": False})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "wine_cellar/search_wine",
+        vol.Required("query"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_search_wine(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Search for wines on Vivino."""
+    vivino = hass.data[DOMAIN]["vivino"]
+    results = await vivino.search_wine(msg["query"])
+    connection.send_result(msg["id"], {"results": results})
+
+
+@websocket_api.websocket_command({vol.Required("type"): "wine_cellar/get_stats"})
+@callback
+def ws_get_stats(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Return cellar statistics."""
+    storage = hass.data[DOMAIN]["storage"]
+    connection.send_result(msg["id"], storage.get_stats())
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "wine_cellar/update_cabinet",
+        vol.Required("cabinet_id"): str,
+        vol.Required("updates"): dict,
+    }
+)
+@websocket_api.async_response
+async def ws_update_cabinet(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Update a cabinet."""
+    storage = hass.data[DOMAIN]["storage"]
+    cabinet = storage.update_cabinet(msg["cabinet_id"], msg["updates"])
+    if cabinet:
+        await storage.async_save()
+        hass.bus.async_fire(f"{DOMAIN}_updated")
+    connection.send_result(msg["id"], {"cabinet": cabinet})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "wine_cellar/add_cabinet",
+        vol.Required("cabinet"): dict,
+    }
+)
+@websocket_api.async_response
+async def ws_add_cabinet(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Add a new cabinet."""
+    storage = hass.data[DOMAIN]["storage"]
+    cabinet = storage.add_cabinet(msg["cabinet"])
+    await storage.async_save()
+    hass.bus.async_fire(f"{DOMAIN}_updated")
+    connection.send_result(msg["id"], {"cabinet": cabinet})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "wine_cellar/remove_cabinet",
+        vol.Required("cabinet_id"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_remove_cabinet(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Remove a cabinet."""
+    storage = hass.data[DOMAIN]["storage"]
+    success = storage.remove_cabinet(msg["cabinet_id"])
+    if success:
+        await storage.async_save()
+        hass.bus.async_fire(f"{DOMAIN}_updated")
+    connection.send_result(msg["id"], {"success": success})

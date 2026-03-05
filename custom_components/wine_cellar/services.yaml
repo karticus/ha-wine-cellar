@@ -1,0 +1,111 @@
+add_wine:
+  name: Add Wine
+  description: Add a wine bottle to the cellar
+  fields:
+    name:
+      name: Name
+      description: Wine name
+      required: true
+      selector:
+        text:
+    winery:
+      name: Winery
+      description: Winery name
+      selector:
+        text:
+    type:
+      name: Type
+      description: Wine type
+      default: red
+      selector:
+        select:
+          options:
+            - red
+            - white
+            - rosé
+            - sparkling
+            - dessert
+    vintage:
+      name: Vintage
+      description: Vintage year
+      selector:
+        number:
+          min: 1900
+          max: 2100
+    cabinet_id:
+      name: Cabinet
+      description: Cabinet ID to place the wine in
+      selector:
+        text:
+    row:
+      name: Row
+      description: Row position in cabinet (0-indexed)
+      selector:
+        number:
+          min: 0
+          max: 20
+    col:
+      name: Column
+      description: Column position in cabinet (0-indexed)
+      selector:
+        number:
+          min: 0
+          max: 20
+    barcode:
+      name: Barcode
+      description: Wine barcode
+      selector:
+        text:
+
+remove_wine:
+  name: Remove Wine
+  description: Remove a wine bottle from the cellar
+  fields:
+    wine_id:
+      name: Wine ID
+      description: The unique ID of the wine to remove
+      required: true
+      selector:
+        text:
+
+move_wine:
+  name: Move Wine
+  description: Move a wine bottle to a different location
+  fields:
+    wine_id:
+      name: Wine ID
+      description: The unique ID of the wine to move
+      required: true
+      selector:
+        text:
+    cabinet_id:
+      name: Cabinet
+      description: Target cabinet ID
+      required: true
+      selector:
+        text:
+    row:
+      name: Row
+      description: Target row position
+      selector:
+        number:
+          min: 0
+          max: 20
+    col:
+      name: Column
+      description: Target column position
+      selector:
+        number:
+          min: 0
+          max: 20
+
+scan_barcode:
+  name: Scan Barcode
+  description: Look up wine info from a barcode and fire an event with results
+  fields:
+    barcode:
+      name: Barcode
+      description: The barcode to look up
+      required: true
+      selector:
+        text:

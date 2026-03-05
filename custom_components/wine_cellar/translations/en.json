@@ -1,0 +1,24 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Wine Cellar Tracker",
+        "description": "Set up Wine Cellar Tracker. This will create a wine inventory with 4 default cabinet sections. You can customize the layout after setup.",
+        "data": {}
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Wine Cellar Tracker is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Wine Cellar Options",
+        "data": {
+          "default_wine_type": "Default wine type for new entries"
+        }
+      }
+    }
+  }
+}
