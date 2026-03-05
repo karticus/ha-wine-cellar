@@ -21,10 +21,10 @@ export class LabelCamera extends LitElement {
       .camera-container {
         position: relative;
         width: 100%;
+        max-height: 350px;
         border-radius: 12px;
         overflow: hidden;
         background: #000;
-        aspect-ratio: 3/4;
       }
 
       video {
@@ -32,13 +32,14 @@ export class LabelCamera extends LitElement {
         height: 100%;
         object-fit: cover;
         display: block;
+        max-height: 350px;
       }
 
       .captured-preview {
         width: 100%;
         border-radius: 12px;
         object-fit: contain;
-        max-height: 300px;
+        max-height: 250px;
       }
 
       .capture-btn-area {

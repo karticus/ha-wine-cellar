@@ -1,7 +1,12 @@
 import { LitElement, html, css, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
-import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode";
 import { sharedStyles } from "../styles";
+
+declare global {
+  interface Window {
+    BarcodeDetector: any;
+  }
+}
 
 @customElement("barcode-scanner")
 export class BarcodeScanner extends LitElement {
@@ -10,8 +15,9 @@ export class BarcodeScanner extends LitElement {
   @state() private _error = "";
   @state() private _scanning = false;
 
-  private _scanner: Html5Qrcode | null = null;
-  private _containerId = "barcode-reader-" + Math.random().toString(36).slice(2, 8);
+  private _stream: MediaStream | null = null;
+  private _detector: any = null;
+  private _rafId = 0;
 
   static styles = [
     sharedStyles,
@@ -26,11 +32,15 @@ export class BarcodeScanner extends LitElement {
         border-radius: 12px;
         overflow: hidden;
         background: #000;
-        aspect-ratio: 4/3;
+        max-height: 300px;
       }
 
-      .scanner-container div {
-        border-radius: 12px;
+      video {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+        max-height: 300px;
       }
 
       .scan-overlay {
@@ -81,6 +91,14 @@ export class BarcodeScanner extends LitElement {
         font-size: 0.8em;
         color: var(--wc-text-secondary);
       }
+
+      .fallback-note {
+        text-align: center;
+        padding: 12px;
+        font-size: 0.85em;
+        color: var(--wc-text-secondary);
+        font-style: italic;
+      }
     `,
   ];
 
@@ -103,46 +121,42 @@ export class BarcodeScanner extends LitElement {
     if (this._scanning) return;
     this._error = "";
 
-    // Wait for render
-    await this.updateComplete;
-    await new Promise((r) => setTimeout(r, 100));
-
-    const container = this.renderRoot.querySelector(`#${this._containerId}`);
-    if (!container) return;
+    // Check for BarcodeDetector support
+    if (!("BarcodeDetector" in window)) {
+      this._error = "Barcode scanning is not supported on this browser. Please enter the barcode manually below.";
+      this.dispatchEvent(
+        new CustomEvent("scanner-error", {
+          detail: { error: this._error },
+          bubbles: true,
+          composed: true,
+        })
+      );
+      return;
+    }
 
     try {
-      this._scanner = new Html5Qrcode(this._containerId, {
-        formatsToSupport: [
-          Html5QrcodeSupportedFormats.EAN_13,
-          Html5QrcodeSupportedFormats.EAN_8,
-          Html5QrcodeSupportedFormats.UPC_A,
-          Html5QrcodeSupportedFormats.UPC_E,
-          Html5QrcodeSupportedFormats.CODE_128,
-        ],
-        verbose: false,
+      this._stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false,
       });
 
-      await this._scanner.start(
-        { facingMode: "environment" },
-        {
-          fps: 10,
-          qrbox: { width: 250, height: 150 },
-          aspectRatio: 4 / 3,
-        },
-        (decodedText) => {
-          this._onDetected(decodedText);
-        },
-        () => {
-          // Scan failure (no code found) - ignore
-        }
-      );
+      await this.updateComplete;
+      const video = this.renderRoot.querySelector("video") as HTMLVideoElement;
+      if (video && this._stream) {
+        video.srcObject = this._stream;
+        await video.play();
+      }
+
+      this._detector = new (window as any).BarcodeDetector({
+        formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128"],
+      });
 
       this._scanning = true;
+      this._scanFrame();
     } catch (err: any) {
       const msg = err?.message || String(err);
       if (msg.includes("NotAllowed") || msg.includes("Permission")) {
-        this._error =
-          "Camera access denied. Please allow camera access in your browser or app settings.";
+        this._error = "Camera access denied. Please allow camera access in your browser settings.";
       } else if (msg.includes("NotFound") || msg.includes("no camera")) {
         this._error = "No camera found on this device.";
       } else {
@@ -158,23 +172,42 @@ export class BarcodeScanner extends LitElement {
     }
   }
 
-  private async _stopScanning() {
-    if (this._scanner) {
-      try {
-        if (this._scanning) {
-          await this._scanner.stop();
-        }
-        this._scanner.clear();
-      } catch {
-        // Ignore cleanup errors
-      }
-      this._scanner = null;
+  private async _scanFrame() {
+    if (!this._scanning || !this._detector) return;
+
+    const video = this.renderRoot.querySelector("video") as HTMLVideoElement;
+    if (!video || video.readyState < 2) {
+      this._rafId = requestAnimationFrame(() => this._scanFrame());
+      return;
     }
+
+    try {
+      const barcodes = await this._detector.detect(video);
+      if (barcodes.length > 0) {
+        this._onDetected(barcodes[0].rawValue);
+        return;
+      }
+    } catch {
+      // Detection error on this frame, continue
+    }
+
+    this._rafId = requestAnimationFrame(() => this._scanFrame());
+  }
+
+  private _stopScanning() {
     this._scanning = false;
+    if (this._rafId) {
+      cancelAnimationFrame(this._rafId);
+      this._rafId = 0;
+    }
+    if (this._stream) {
+      this._stream.getTracks().forEach((t) => t.stop());
+      this._stream = null;
+    }
+    this._detector = null;
   }
 
   private _onDetected(barcode: string) {
-    // Stop scanning after detection
     this._stopScanning();
     this.dispatchEvent(
       new CustomEvent("barcode-detected", {
@@ -193,7 +226,7 @@ export class BarcodeScanner extends LitElement {
         ? html`<div class="error-message">${this._error}</div>`
         : html`
             <div class="scanner-container">
-              <div id=${this._containerId}></div>
+              <video autoplay playsinline muted></video>
               <div class="scan-overlay">
                 <div class="scan-corners"></div>
                 <div class="scan-line"></div>
