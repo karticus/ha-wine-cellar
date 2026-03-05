@@ -385,6 +385,26 @@ def _parse_vivino_html(html: str) -> dict[str, Any] | None:
                     rating = round(val, 1)
                     break
 
+        # Extract image URL from Vivino HTML
+        image_url = ""
+        for img_pattern in [
+            r'"image":\{"location":"(https://[^"]+)"',
+            r'"image":\{[^}]*"location":"(https://[^"]+)"',
+            r'<img[^>]+class="[^"]*wine[^"]*"[^>]+src="(https://[^"]+)"',
+        ]:
+            img_match = re.search(img_pattern, decoded)
+            if img_match:
+                image_url = img_match.group(1)
+                break
+
+        # Extract grape variety
+        grape = ""
+        grape_match = re.search(
+            r'"grapes":\[\{"name":"([^"]+)"', decoded
+        )
+        if grape_match:
+            grape = grape_match.group(1)
+
         return {
             "name": wine_name,
             "winery": winery_match.group(1) if winery_match else "",
@@ -392,9 +412,9 @@ def _parse_vivino_html(html: str) -> dict[str, Any] | None:
             "country": country_match.group(1) if country_match else "",
             "vintage": vintage,
             "type": wine_type,
-            "grape_variety": "",
+            "grape_variety": grape,
             "rating": rating,
-            "image_url": "",
+            "image_url": image_url,
             "price": None,
             "source": "vivino",
         }

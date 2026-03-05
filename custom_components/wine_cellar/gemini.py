@@ -27,13 +27,17 @@ LABEL_PROMPT = """You are a wine label recognition expert. Analyze this wine lab
   "type": "red",
   "region": "the wine region (e.g. Bordeaux, Napa Valley, Barossa Valley)",
   "country": "the country of origin",
-  "grape_variety": "grape varieties if mentioned on label"
+  "grape_variety": "grape varieties if mentioned on label",
+  "drink_by": "estimated optimal drink-by year based on wine type and vintage",
+  "notes": "brief description of the wine style, appellation, or any notable info from the label"
 }
 
 Rules:
 - "name" should include the wine name AND style/designation (Brut, Demi-Sec, Reserve, Grand Cru, etc.) but NOT the winery name
 - "vintage" must be a 4-digit year as an integer, or null if not visible (NV wines = null)
 - "type" must be exactly one of: "red", "white", "rosé", "sparkling", "dessert"
+- "drink_by" should be a year string like "2028" based on wine aging potential. Use general guidelines: everyday wines 3-5 years from vintage, quality reds 10-20 years, whites 2-5 years, sparkling 3-5 years. Use "" if unknown.
+- "notes" should be a short description (1-2 sentences) about the wine based on what you see on the label (appellation, classification, style).
 - If you cannot determine a field, use an empty string "" (or null for vintage)
 - Do not guess or fabricate information not visible on the label
 - For "type", infer from visual cues (bottle color, label text like "Blanc", "Rosé", "Brut", "Méthode Champenoise") if not explicitly stated
@@ -171,6 +175,8 @@ class GeminiVisionClient:
                     "vintage": vintage,
                     "type": wine_type,
                     "grape_variety": str(result.get("grape_variety", "")).strip(),
+                    "drink_by": str(result.get("drink_by", "")).strip(),
+                    "notes": str(result.get("notes", "")).strip(),
                     "rating": None,
                     "image_url": "",
                     "price": None,

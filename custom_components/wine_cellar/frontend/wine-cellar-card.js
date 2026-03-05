@@ -395,6 +395,7 @@ let CabinetGrid = class CabinetGrid extends i {
                   >
                     ${wine
                 ? b `
+                          ${wine.image_url ? b `<img class="wine-thumb" src="${wine.image_url}" alt="" />` : A}
                           <span class="bottle-label">${wine.vintage || "NV"}</span>
                           ${dispClass ? b `<span class="disposition ${dispClass}">${disp}</span>` : A}
                           ${ratingDisplay ? b `<span class="rating-badge">★${ratingDisplay}</span>` : A}
@@ -528,6 +529,15 @@ CabinetGrid.styles = [
           inset 0 -2px 4px rgba(0, 0, 0, 0.3),
           0 0 8px rgba(50, 100, 255, 0.15);
         border: 1px solid rgba(255, 255, 255, 0.1);
+        overflow: hidden;
+      }
+
+      .cell .wine-thumb {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        border-radius: 50%;
       }
 
       .cell.filled:hover {
@@ -558,12 +568,12 @@ CabinetGrid.styles = [
 
       .cell .disposition {
         position: absolute;
-        top: -2px;
-        right: -2px;
-        width: 14px;
-        height: 14px;
+        top: -4px;
+        right: -4px;
+        width: 20px;
+        height: 20px;
         border-radius: 50%;
-        font-size: 8px;
+        font-size: 11px;
         font-weight: 700;
         display: flex;
         align-items: center;
@@ -572,6 +582,8 @@ CabinetGrid.styles = [
         z-index: 2;
         pointer-events: none;
         line-height: 1;
+        border: 2px solid rgba(0, 0, 0, 0.3);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
       }
 
       .cell .disposition.drink {
@@ -945,9 +957,18 @@ let WineDetailDialog = class WineDetailDialog extends i {
             <div class="wine-title">
               <div class="wine-name">${wine.name}</div>
               <div class="wine-winery">${wine.winery}</div>
-              <span class="wine-type-badge" style="background: ${typeColor}">
-                ${typeLabel}
-              </span>
+              <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+                <span class="wine-type-badge" style="background: ${typeColor}">
+                  ${typeLabel}
+                </span>
+                ${wine.disposition
+            ? b `<span class="wine-type-badge" style="background: ${wine.disposition === "D" ? "#2e7d32" :
+                wine.disposition === "H" ? "#1565c0" :
+                    wine.disposition === "P" ? "#c62828" : "#666"}">${wine.disposition === "D" ? "Drink Now" :
+                wine.disposition === "H" ? "Hold" :
+                    wine.disposition === "P" ? "Past Peak" : wine.disposition}</span>`
+            : A}
+              </div>
               ${wine.rating
             ? b `
                     <div class="wine-rating">
@@ -1124,17 +1145,18 @@ WineDetailDialog.styles = [
       }
 
       .wine-image {
-        width: 80px;
-        height: 120px;
+        width: 90px;
+        height: 130px;
         border-radius: 8px;
         object-fit: cover;
         background: #f0f0f0;
         flex-shrink: 0;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
       }
 
       .wine-image-placeholder {
-        width: 80px;
-        height: 120px;
+        width: 90px;
+        height: 130px;
         border-radius: 8px;
         display: flex;
         align-items: center;
@@ -1929,6 +1951,32 @@ let AddWineDialog = class AddWineDialog extends i {
         this._labelLoading = false;
         this._steps = ["scan", "details", "location", "confirm"];
     }
+    /** Resize a base64 JPEG to a small thumbnail for storage */
+    _resizeImageForStorage(base64, maxDim = 200, quality = 0.6) {
+        return new Promise((resolve) => {
+            const img = new Image();
+            img.onload = () => {
+                const canvas = document.createElement("canvas");
+                let w = img.width, h = img.height;
+                if (w > h) {
+                    h = Math.round(h * maxDim / w);
+                    w = maxDim;
+                }
+                else {
+                    w = Math.round(w * maxDim / h);
+                    h = maxDim;
+                }
+                canvas.width = w;
+                canvas.height = h;
+                const ctx = canvas.getContext("2d");
+                ctx.drawImage(img, 0, 0, w, h);
+                const dataUrl = canvas.toDataURL("image/jpeg", quality);
+                resolve(dataUrl);
+            };
+            img.onerror = () => resolve("");
+            img.src = `data:image/jpeg;base64,${base64}`;
+        });
+    }
     updated(changedProps) {
         if (changedProps.has("open")) {
             if (this.open) {
@@ -2067,6 +2115,8 @@ let AddWineDialog = class AddWineDialog extends i {
                 image: e.detail.image,
             });
             if (result.result) {
+                // Resize captured photo to thumbnail for storage
+                const thumbUrl = await this._resizeImageForStorage(e.detail.image);
                 this._wineData = {
                     ...this._wineData,
                     name: result.result.name || "",
@@ -2076,6 +2126,9 @@ let AddWineDialog = class AddWineDialog extends i {
                     region: result.result.region || "",
                     country: result.result.country || "",
                     grape_variety: result.result.grape_variety || "",
+                    drink_by: result.result.drink_by || "",
+                    notes: result.result.notes || "",
+                    image_url: thumbUrl,
                 };
                 this._scanMode = "idle";
                 this._step = "details";
@@ -3777,7 +3830,8 @@ let WineCellarCard = class WineCellarCard extends i {
         }
         const title = this._config?.title || "Wine Cellar";
         const filteredWines = this._getFilteredWines();
-        const showGrid = this._activeTab === "all" || this._cabinets.some((c) => c.id === this._activeTab);
+        const isSearching = !!(this._searchQuery || this._searchFilter !== "all");
+        const showGrid = !isSearching && (this._activeTab === "all" || this._cabinets.some((c) => c.id === this._activeTab));
         return b `
       <ha-card>
         <div class="header-row">
@@ -3787,12 +3841,13 @@ let WineCellarCard = class WineCellarCard extends i {
           </div>
           <div class="header-actions">
             <button
-              class="btn btn-icon"
+              class="btn btn-outline"
+              style="font-size: 0.8em; padding: 4px 10px;"
               @click=${this._analyzeWines}
               title="AI Drink/Hold Analysis"
               ?disabled=${this._analyzing}
             >
-              ${this._analyzing ? "⏳" : "🧠"}
+              ${this._analyzing ? "⏳ Analyzing..." : "AI Scan"}
             </button>
             <button
               class="btn btn-icon"
@@ -3892,8 +3947,8 @@ let WineCellarCard = class WineCellarCard extends i {
             `
             : A}
 
-        <!-- Filtered wine list (shown when searching) -->
-        ${this._searchQuery || this._searchFilter !== "all"
+        <!-- Filtered wine list (shown when searching or filtering) -->
+        ${isSearching
             ? b `
               <div class="wine-list">
                 ${filteredWines.length === 0
@@ -3913,23 +3968,32 @@ let WineCellarCard = class WineCellarCard extends i {
                         this._showDetail = true;
                     }}
                         >
-                          <div
-                            class="wine-list-dot"
-                            style="background: ${wine.type === "red"
-                        ? "#722F37"
-                        : wine.type === "white"
-                            ? "#F5E6CA"
-                            : wine.type === "rosé"
-                                ? "#E8A0BF"
-                                : wine.type === "sparkling"
-                                    ? "#D4E09B"
-                                    : "#DAA520"}"
-                          ></div>
+                          ${wine.image_url
+                        ? b `<img class="wine-list-thumb" src="${wine.image_url}" alt="" />`
+                        : b `<div
+                                class="wine-list-dot"
+                                style="background: ${wine.type === "red"
+                            ? "#722F37"
+                            : wine.type === "white"
+                                ? "#F5E6CA"
+                                : wine.type === "rosé"
+                                    ? "#E8A0BF"
+                                    : wine.type === "sparkling"
+                                        ? "#D4E09B"
+                                        : "#DAA520"}"
+                              ></div>`}
                           <div class="wine-list-info">
                             <div class="wine-list-name">${wine.name}</div>
                             <div class="wine-list-meta">
                               ${wine.winery}${wine.vintage ? ` · ${wine.vintage}` : ""}
                               ${wine.rating ? ` · ★${wine.rating}` : ""}
+                              ${wine.disposition
+                        ? b ` · <span style="color: ${wine.disposition === "D" ? "#2e7d32" :
+                            wine.disposition === "H" ? "#1565c0" :
+                                wine.disposition === "P" ? "#c62828" : "inherit"}">${wine.disposition === "D" ? "Drink" :
+                            wine.disposition === "H" ? "Hold" :
+                                wine.disposition === "P" ? "Past Peak" : ""}</span>`
+                        : A}
                             </div>
                           </div>
                           <div class="wine-list-location">${cabinetName}</div>
@@ -4068,6 +4132,14 @@ WineCellarCard.styles = [
         width: 12px;
         height: 12px;
         border-radius: 50%;
+        flex-shrink: 0;
+      }
+
+      .wine-list-thumb {
+        width: 36px;
+        height: 48px;
+        border-radius: 4px;
+        object-fit: cover;
         flex-shrink: 0;
       }
 

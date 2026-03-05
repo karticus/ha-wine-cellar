@@ -104,6 +104,15 @@ export class CabinetGrid extends LitElement {
           inset 0 -2px 4px rgba(0, 0, 0, 0.3),
           0 0 8px rgba(50, 100, 255, 0.15);
         border: 1px solid rgba(255, 255, 255, 0.1);
+        overflow: hidden;
+      }
+
+      .cell .wine-thumb {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        border-radius: 50%;
       }
 
       .cell.filled:hover {
@@ -134,12 +143,12 @@ export class CabinetGrid extends LitElement {
 
       .cell .disposition {
         position: absolute;
-        top: -2px;
-        right: -2px;
-        width: 14px;
-        height: 14px;
+        top: -4px;
+        right: -4px;
+        width: 20px;
+        height: 20px;
         border-radius: 50%;
-        font-size: 8px;
+        font-size: 11px;
         font-weight: 700;
         display: flex;
         align-items: center;
@@ -148,6 +157,8 @@ export class CabinetGrid extends LitElement {
         z-index: 2;
         pointer-events: none;
         line-height: 1;
+        border: 2px solid rgba(0, 0, 0, 0.3);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
       }
 
       .cell .disposition.drink {
@@ -347,6 +358,7 @@ export class CabinetGrid extends LitElement {
                   >
                     ${wine
                       ? html`
+                          ${wine.image_url ? html`<img class="wine-thumb" src="${wine.image_url}" alt="" />` : nothing}
                           <span class="bottle-label">${wine.vintage || "NV"}</span>
                           ${dispClass ? html`<span class="disposition ${dispClass}">${disp}</span>` : nothing}
                           ${ratingDisplay ? html`<span class="rating-badge">★${ratingDisplay}</span>` : nothing}

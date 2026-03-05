@@ -319,6 +319,27 @@ export class AddWineDialog extends LitElement {
 
   private _steps: Step[] = ["scan", "details", "location", "confirm"];
 
+  /** Resize a base64 JPEG to a small thumbnail for storage */
+  private _resizeImageForStorage(base64: string, maxDim = 200, quality = 0.6): Promise<string> {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        let w = img.width, h = img.height;
+        if (w > h) { h = Math.round(h * maxDim / w); w = maxDim; }
+        else { w = Math.round(w * maxDim / h); h = maxDim; }
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d")!;
+        ctx.drawImage(img, 0, 0, w, h);
+        const dataUrl = canvas.toDataURL("image/jpeg", quality);
+        resolve(dataUrl);
+      };
+      img.onerror = () => resolve("");
+      img.src = `data:image/jpeg;base64,${base64}`;
+    });
+  }
+
   updated(changedProps: Map<string, unknown>) {
     if (changedProps.has("open")) {
       if (this.open) {
@@ -466,6 +487,8 @@ export class AddWineDialog extends LitElement {
       });
 
       if (result.result) {
+        // Resize captured photo to thumbnail for storage
+        const thumbUrl = await this._resizeImageForStorage(e.detail.image);
         this._wineData = {
           ...this._wineData,
           name: result.result.name || "",
@@ -475,6 +498,9 @@ export class AddWineDialog extends LitElement {
           region: result.result.region || "",
           country: result.result.country || "",
           grape_variety: result.result.grape_variety || "",
+          drink_by: result.result.drink_by || "",
+          notes: result.result.notes || "",
+          image_url: thumbUrl,
         };
         this._scanMode = "idle";
         this._step = "details";

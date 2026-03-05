@@ -25,17 +25,18 @@ export class WineDetailDialog extends LitElement {
       }
 
       .wine-image {
-        width: 80px;
-        height: 120px;
+        width: 90px;
+        height: 130px;
         border-radius: 8px;
         object-fit: cover;
         background: #f0f0f0;
         flex-shrink: 0;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
       }
 
       .wine-image-placeholder {
-        width: 80px;
-        height: 120px;
+        width: 90px;
+        height: 130px;
         border-radius: 8px;
         display: flex;
         align-items: center;
@@ -367,9 +368,22 @@ export class WineDetailDialog extends LitElement {
             <div class="wine-title">
               <div class="wine-name">${wine.name}</div>
               <div class="wine-winery">${wine.winery}</div>
-              <span class="wine-type-badge" style="background: ${typeColor}">
-                ${typeLabel}
-              </span>
+              <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+                <span class="wine-type-badge" style="background: ${typeColor}">
+                  ${typeLabel}
+                </span>
+                ${wine.disposition
+                  ? html`<span class="wine-type-badge" style="background: ${
+                      wine.disposition === "D" ? "#2e7d32" :
+                      wine.disposition === "H" ? "#1565c0" :
+                      wine.disposition === "P" ? "#c62828" : "#666"
+                    }">${
+                      wine.disposition === "D" ? "Drink Now" :
+                      wine.disposition === "H" ? "Hold" :
+                      wine.disposition === "P" ? "Past Peak" : wine.disposition
+                    }</span>`
+                  : nothing}
+              </div>
               ${wine.rating
                 ? html`
                     <div class="wine-rating">

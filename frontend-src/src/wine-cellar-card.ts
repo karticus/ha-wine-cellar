@@ -104,6 +104,14 @@ export class WineCellarCard extends LitElement {
         flex-shrink: 0;
       }
 
+      .wine-list-thumb {
+        width: 36px;
+        height: 48px;
+        border-radius: 4px;
+        object-fit: cover;
+        flex-shrink: 0;
+      }
+
       .wine-list-info {
         flex: 1;
         min-width: 0;
@@ -438,7 +446,8 @@ export class WineCellarCard extends LitElement {
 
     const title = this._config?.title || "Wine Cellar";
     const filteredWines = this._getFilteredWines();
-    const showGrid = this._activeTab === "all" || this._cabinets.some((c) => c.id === this._activeTab);
+    const isSearching = !!(this._searchQuery || this._searchFilter !== "all");
+    const showGrid = !isSearching && (this._activeTab === "all" || this._cabinets.some((c) => c.id === this._activeTab));
 
     return html`
       <ha-card>
@@ -449,12 +458,13 @@ export class WineCellarCard extends LitElement {
           </div>
           <div class="header-actions">
             <button
-              class="btn btn-icon"
+              class="btn btn-outline"
+              style="font-size: 0.8em; padding: 4px 10px;"
               @click=${this._analyzeWines}
               title="AI Drink/Hold Analysis"
               ?disabled=${this._analyzing}
             >
-              ${this._analyzing ? "⏳" : "🧠"}
+              ${this._analyzing ? "⏳ Analyzing..." : "AI Scan"}
             </button>
             <button
               class="btn btn-icon"
@@ -560,8 +570,8 @@ export class WineCellarCard extends LitElement {
             `
           : nothing}
 
-        <!-- Filtered wine list (shown when searching) -->
-        ${this._searchQuery || this._searchFilter !== "all"
+        <!-- Filtered wine list (shown when searching or filtering) -->
+        ${isSearching
           ? html`
               <div class="wine-list">
                 ${filteredWines.length === 0
@@ -582,25 +592,38 @@ export class WineCellarCard extends LitElement {
                             this._showDetail = true;
                           }}
                         >
-                          <div
-                            class="wine-list-dot"
-                            style="background: ${
-                              wine.type === "red"
-                                ? "#722F37"
-                                : wine.type === "white"
-                                  ? "#F5E6CA"
-                                  : wine.type === "rosé"
-                                    ? "#E8A0BF"
-                                    : wine.type === "sparkling"
-                                      ? "#D4E09B"
-                                      : "#DAA520"
-                            }"
-                          ></div>
+                          ${wine.image_url
+                            ? html`<img class="wine-list-thumb" src="${wine.image_url}" alt="" />`
+                            : html`<div
+                                class="wine-list-dot"
+                                style="background: ${
+                                  wine.type === "red"
+                                    ? "#722F37"
+                                    : wine.type === "white"
+                                      ? "#F5E6CA"
+                                      : wine.type === "rosé"
+                                        ? "#E8A0BF"
+                                        : wine.type === "sparkling"
+                                          ? "#D4E09B"
+                                          : "#DAA520"
+                                }"
+                              ></div>`}
                           <div class="wine-list-info">
                             <div class="wine-list-name">${wine.name}</div>
                             <div class="wine-list-meta">
                               ${wine.winery}${wine.vintage ? ` · ${wine.vintage}` : ""}
                               ${wine.rating ? ` · ★${wine.rating}` : ""}
+                              ${wine.disposition
+                                ? html` · <span style="color: ${
+                                    wine.disposition === "D" ? "#2e7d32" :
+                                    wine.disposition === "H" ? "#1565c0" :
+                                    wine.disposition === "P" ? "#c62828" : "inherit"
+                                  }">${
+                                    wine.disposition === "D" ? "Drink" :
+                                    wine.disposition === "H" ? "Hold" :
+                                    wine.disposition === "P" ? "Past Peak" : ""
+                                  }</span>`
+                                : nothing}
                             </div>
                           </div>
                           <div class="wine-list-location">${cabinetName}</div>
