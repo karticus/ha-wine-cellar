@@ -8,7 +8,6 @@ from typing import Any
 
 import voluptuous as vol
 
-from homeassistant.components.frontend import async_register_built_in_panel
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import config_validation as cv
@@ -60,12 +59,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Forward to sensor platform
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-
-    # Register the card as a Lovelace resource
-    hass.components.frontend.async_register_built_in_panel(
-        "lovelace",
-        require_admin=False,
-    )
 
     return True
 
