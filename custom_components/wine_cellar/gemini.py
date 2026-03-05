@@ -302,11 +302,22 @@ Rules:
                 if disp not in ("D", "H", "P"):
                     disp = "D"
 
+                # Parse estimated price
+                est_price = result.get("estimated_price")
+                if est_price is not None:
+                    try:
+                        est_price = round(float(est_price), 2)
+                        if est_price <= 0:
+                            est_price = None
+                    except (ValueError, TypeError):
+                        est_price = None
+
                 return {
                     "disposition": disp,
                     "drink_by": str(result.get("drink_by", "")).strip(),
                     "drink_window": str(result.get("drink_window", "")).strip(),
                     "description": str(result.get("description", "")).strip(),
+                    "estimated_price": est_price,
                     "rating_ws": result.get("rating_ws"),
                     "rating_rp": result.get("rating_rp"),
                     "rating_jd": result.get("rating_jd"),
