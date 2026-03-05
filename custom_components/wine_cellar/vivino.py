@@ -453,10 +453,12 @@ def _parse_vivino_html(html: str) -> dict[str, Any] | None:
             alcohol = f"{alc_match.group(1)}%"
 
         # Extract price from Vivino
-        # Use stricter patterns — only match wine price contexts, skip
-        # default/trial values like 4.99 which appear in Vivino HTML boilerplate
+        # Patterns allow other fields (like "id") between the key and "amount"
+        # Skip default/trial values like 4.99 which appear in Vivino HTML boilerplate
         price = None
         for price_pattern in [
+            r'"price":\{[^}]*"amount":([\d.]+)',
+            r'"median":\{[^}]*"amount":([\d.]+)',
             r'"price":\{"amount":([\d.]+)',
             r'"median":\{"amount":([\d.]+)',
         ]:
