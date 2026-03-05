@@ -1,6 +1,6 @@
 import { LitElement, html, css, nothing } from "lit";
 import { customElement, property } from "lit/decorators.js";
-import { Cabinet, Wine, WINE_TYPE_COLORS, WineType } from "../models";
+import { Cabinet, Wine, StorageRow, WINE_TYPE_COLORS, WineType } from "../models";
 import { sharedStyles } from "../styles";
 
 @customElement("cabinet-grid")
@@ -297,9 +297,26 @@ export class CabinetGrid extends LitElement {
     );
   }
 
+  private _getStorageRowSet(): Set<number> {
+    const rows = (this.cabinet as any).storage_rows as StorageRow[] | undefined;
+    return new Set((rows || []).map((sr) => sr.row));
+  }
+
+  private _getStorageRowName(row: number): string {
+    const rows = (this.cabinet as any).storage_rows as StorageRow[] | undefined;
+    const sr = (rows || []).find((s) => s.row === row);
+    return sr?.name || "Storage";
+  }
+
   private _getBottomZoneWines(): Wine[] {
     return this.wines.filter(
       (w) => w.cabinet_id === this.cabinet.id && w.zone === "bottom"
+    );
+  }
+
+  private _getStorageRowWines(row: number): Wine[] {
+    return this.wines.filter(
+      (w) => w.cabinet_id === this.cabinet.id && w.zone === `storage-${row}`
     );
   }
 
@@ -318,12 +335,12 @@ export class CabinetGrid extends LitElement {
     );
   }
 
-  private _onZoneClick(wine?: Wine) {
+  private _onZoneClick(wine?: Wine, zone = "bottom") {
     this.dispatchEvent(
       new CustomEvent("zone-click", {
         detail: {
           cabinet: this.cabinet,
-          zone: "bottom",
+          zone,
           wine,
         },
         bubbles: true,
@@ -332,43 +349,78 @@ export class CabinetGrid extends LitElement {
     );
   }
 
+  private _renderStorageZone(row: number) {
+    const zoneName = this._getStorageRowName(row);
+    const zoneId = `storage-${row}`;
+    const wines = this._getStorageRowWines(row);
+    return html`
+      <div class="bottom-zone" @click=${() => this._onZoneClick(undefined, zoneId)}>
+        <div class="bottom-zone-label">${zoneName}</div>
+        ${wines.map(
+          (wine) => html`
+            <div
+              class="zone-bottle"
+              style="background: ${WINE_TYPE_COLORS[wine.type as WineType] || WINE_TYPE_COLORS.red}"
+              @click=${(e: Event) => {
+                e.stopPropagation();
+                this._onZoneClick(wine, zoneId);
+              }}
+              title="${wine.name}"
+            >
+              ${(wine.vintage || "NV").toString().slice(-2)}
+            </div>
+          `
+        )}
+      </div>
+    `;
+  }
+
+  private _renderGridRow(row: number, cols: number) {
+    return html`
+      <div class="row">
+        ${Array.from({ length: cols }, (_, col) => {
+          const wine = this._getWineAt(row, col);
+          const bgColor = wine
+            ? WINE_TYPE_COLORS[wine.type as WineType] || WINE_TYPE_COLORS.red
+            : "transparent";
+          const disp = wine?.disposition || "";
+          const dispClass = disp === "D" ? "drink" : disp === "H" ? "hold" : disp === "P" ? "past" : "";
+          const ratingDisplay = wine?.rating ? wine.rating.toFixed(1) : "";
+          return html`
+            <div
+              class="cell ${wine ? "filled" : "empty"}"
+              style=${wine ? `background: ${bgColor}` : ""}
+              @click=${() => this._onCellClick(row, col, wine)}
+              title=${wine ? `${wine.name} (${wine.vintage || "NV"})${wine.rating ? ` ★${wine.rating}` : ""}` : `Empty - Row ${row + 1}, Col ${col + 1}`}
+            >
+              ${wine
+                ? html`
+                    ${wine.image_url ? html`<img class="wine-thumb" src="${wine.image_url}" alt="" />` : nothing}
+                    <span class="bottle-label">${wine.vintage || "NV"}</span>
+                    ${dispClass ? html`<span class="disposition ${dispClass}">${disp}</span>` : nothing}
+                    ${ratingDisplay ? html`<span class="rating-badge">★${ratingDisplay}</span>` : nothing}
+                  `
+                : nothing}
+            </div>
+          `;
+        })}
+      </div>
+    `;
+  }
+
   render() {
     const { rows, cols } = this.cabinet;
+    const storageRows = this._getStorageRowSet();
 
     return html`
       <div class="cabinet">
         <div class="cabinet-name">${this.cabinet.name}</div>
         <div class="grid-inner">
-          ${Array.from({ length: rows }, (_, row) => html`
-            <div class="row">
-              ${Array.from({ length: cols }, (_, col) => {
-                const wine = this._getWineAt(row, col);
-                const bgColor = wine
-                  ? WINE_TYPE_COLORS[wine.type as WineType] || WINE_TYPE_COLORS.red
-                  : "transparent";
-                const disp = wine?.disposition || "";
-                const dispClass = disp === "D" ? "drink" : disp === "H" ? "hold" : disp === "P" ? "past" : "";
-                const ratingDisplay = wine?.rating ? wine.rating.toFixed(1) : "";
-                return html`
-                  <div
-                    class="cell ${wine ? "filled" : "empty"}"
-                    style=${wine ? `background: ${bgColor}` : ""}
-                    @click=${() => this._onCellClick(row, col, wine)}
-                    title=${wine ? `${wine.name} (${wine.vintage || "NV"})${wine.rating ? ` ★${wine.rating}` : ""}` : `Empty - Row ${row + 1}, Col ${col + 1}`}
-                  >
-                    ${wine
-                      ? html`
-                          ${wine.image_url ? html`<img class="wine-thumb" src="${wine.image_url}" alt="" />` : nothing}
-                          <span class="bottle-label">${wine.vintage || "NV"}</span>
-                          ${dispClass ? html`<span class="disposition ${dispClass}">${disp}</span>` : nothing}
-                          ${ratingDisplay ? html`<span class="rating-badge">★${ratingDisplay}</span>` : nothing}
-                        `
-                      : nothing}
-                  </div>
-                `;
-              })}
-            </div>
-          `)}
+          ${Array.from({ length: rows }, (_, row) =>
+            storageRows.has(row)
+              ? this._renderStorageZone(row)
+              : this._renderGridRow(row, cols)
+          )}
         </div>
         ${this.cabinet.has_bottom_zone
           ? html`

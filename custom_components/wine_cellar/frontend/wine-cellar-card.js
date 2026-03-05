@@ -344,8 +344,20 @@ let CabinetGrid = class CabinetGrid extends i {
     _getWineAt(row, col) {
         return this.wines.find((w) => w.cabinet_id === this.cabinet.id && w.row === row && w.col === col);
     }
+    _getStorageRowSet() {
+        const rows = this.cabinet.storage_rows;
+        return new Set((rows || []).map((sr) => sr.row));
+    }
+    _getStorageRowName(row) {
+        const rows = this.cabinet.storage_rows;
+        const sr = (rows || []).find((s) => s.row === row);
+        return sr?.name || "Storage";
+    }
     _getBottomZoneWines() {
         return this.wines.filter((w) => w.cabinet_id === this.cabinet.id && w.zone === "bottom");
+    }
+    _getStorageRowWines(row) {
+        return this.wines.filter((w) => w.cabinet_id === this.cabinet.id && w.zone === `storage-${row}`);
     }
     _onCellClick(row, col, wine) {
         this.dispatchEvent(new CustomEvent("cell-click", {
@@ -359,26 +371,44 @@ let CabinetGrid = class CabinetGrid extends i {
             composed: true,
         }));
     }
-    _onZoneClick(wine) {
+    _onZoneClick(wine, zone = "bottom") {
         this.dispatchEvent(new CustomEvent("zone-click", {
             detail: {
                 cabinet: this.cabinet,
-                zone: "bottom",
+                zone,
                 wine,
             },
             bubbles: true,
             composed: true,
         }));
     }
-    render() {
-        const { rows, cols } = this.cabinet;
+    _renderStorageZone(row) {
+        const zoneName = this._getStorageRowName(row);
+        const zoneId = `storage-${row}`;
+        const wines = this._getStorageRowWines(row);
         return b `
-      <div class="cabinet">
-        <div class="cabinet-name">${this.cabinet.name}</div>
-        <div class="grid-inner">
-          ${Array.from({ length: rows }, (_, row) => b `
-            <div class="row">
-              ${Array.from({ length: cols }, (_, col) => {
+      <div class="bottom-zone" @click=${() => this._onZoneClick(undefined, zoneId)}>
+        <div class="bottom-zone-label">${zoneName}</div>
+        ${wines.map((wine) => b `
+            <div
+              class="zone-bottle"
+              style="background: ${WINE_TYPE_COLORS[wine.type] || WINE_TYPE_COLORS.red}"
+              @click=${(e) => {
+            e.stopPropagation();
+            this._onZoneClick(wine, zoneId);
+        }}
+              title="${wine.name}"
+            >
+              ${(wine.vintage || "NV").toString().slice(-2)}
+            </div>
+          `)}
+      </div>
+    `;
+    }
+    _renderGridRow(row, cols) {
+        return b `
+      <div class="row">
+        ${Array.from({ length: cols }, (_, col) => {
             const wine = this._getWineAt(row, col);
             const bgColor = wine
                 ? WINE_TYPE_COLORS[wine.type] || WINE_TYPE_COLORS.red
@@ -387,25 +417,36 @@ let CabinetGrid = class CabinetGrid extends i {
             const dispClass = disp === "D" ? "drink" : disp === "H" ? "hold" : disp === "P" ? "past" : "";
             const ratingDisplay = wine?.rating ? wine.rating.toFixed(1) : "";
             return b `
-                  <div
-                    class="cell ${wine ? "filled" : "empty"}"
-                    style=${wine ? `background: ${bgColor}` : ""}
-                    @click=${() => this._onCellClick(row, col, wine)}
-                    title=${wine ? `${wine.name} (${wine.vintage || "NV"})${wine.rating ? ` ★${wine.rating}` : ""}` : `Empty - Row ${row + 1}, Col ${col + 1}`}
-                  >
-                    ${wine
+            <div
+              class="cell ${wine ? "filled" : "empty"}"
+              style=${wine ? `background: ${bgColor}` : ""}
+              @click=${() => this._onCellClick(row, col, wine)}
+              title=${wine ? `${wine.name} (${wine.vintage || "NV"})${wine.rating ? ` ★${wine.rating}` : ""}` : `Empty - Row ${row + 1}, Col ${col + 1}`}
+            >
+              ${wine
                 ? b `
-                          ${wine.image_url ? b `<img class="wine-thumb" src="${wine.image_url}" alt="" />` : A}
-                          <span class="bottle-label">${wine.vintage || "NV"}</span>
-                          ${dispClass ? b `<span class="disposition ${dispClass}">${disp}</span>` : A}
-                          ${ratingDisplay ? b `<span class="rating-badge">★${ratingDisplay}</span>` : A}
-                        `
+                    ${wine.image_url ? b `<img class="wine-thumb" src="${wine.image_url}" alt="" />` : A}
+                    <span class="bottle-label">${wine.vintage || "NV"}</span>
+                    ${dispClass ? b `<span class="disposition ${dispClass}">${disp}</span>` : A}
+                    ${ratingDisplay ? b `<span class="rating-badge">★${ratingDisplay}</span>` : A}
+                  `
                 : A}
-                  </div>
-                `;
-        })}
             </div>
-          `)}
+          `;
+        })}
+      </div>
+    `;
+    }
+    render() {
+        const { rows, cols } = this.cabinet;
+        const storageRows = this._getStorageRowSet();
+        return b `
+      <div class="cabinet">
+        <div class="cabinet-name">${this.cabinet.name}</div>
+        <div class="grid-inner">
+          ${Array.from({ length: rows }, (_, row) => storageRows.has(row)
+            ? this._renderStorageZone(row)
+            : this._renderGridRow(row, cols))}
         </div>
         ${this.cabinet.has_bottom_zone
             ? b `
@@ -1940,6 +1981,7 @@ let AddWineDialog = class AddWineDialog extends i {
         this.preselectedCabinet = "";
         this.preselectedRow = null;
         this.preselectedCol = null;
+        this.preselectedZone = "";
         this._step = "scan";
         this._scanMode = "idle";
         this._barcode = "";
@@ -2002,6 +2044,7 @@ let AddWineDialog = class AddWineDialog extends i {
                     cabinet_id: this.preselectedCabinet || "",
                     row: this.preselectedRow,
                     col: this.preselectedCol,
+                    zone: this.preselectedZone || "",
                 };
                 this._checkCapabilities();
             }
@@ -2896,6 +2939,9 @@ __decorate([
     n({ attribute: false })
 ], AddWineDialog.prototype, "preselectedCol", void 0);
 __decorate([
+    n({ attribute: false })
+], AddWineDialog.prototype, "preselectedZone", void 0);
+__decorate([
     r()
 ], AddWineDialog.prototype, "_step", void 0);
 __decorate([
@@ -3075,6 +3121,7 @@ let RackSettingsDialog = class RackSettingsDialog extends i {
         this.wines = [];
         this._mode = "list";
         this._editCabinet = {};
+        this._editStorageRows = [];
         this._deleteCabinet = null;
         this._loading = false;
         this._error = "";
@@ -3110,18 +3157,36 @@ let RackSettingsDialog = class RackSettingsDialog extends i {
             rows: 8,
             cols: 8,
             has_bottom_zone: false,
-            bottom_zone_name: "Box Storage",
+            bottom_zone_name: "",
         };
+        this._editStorageRows = [];
     }
     _startEdit(cabinet) {
         this._mode = "edit";
         this._error = "";
         this._editCabinet = { ...cabinet };
+        // Initialize storage rows from cabinet data
+        this._editStorageRows = [...(cabinet.storage_rows || [])];
     }
     _startDelete(cabinet) {
         this._mode = "delete-confirm";
         this._error = "";
         this._deleteCabinet = cabinet;
+    }
+    _toggleStorageRow(row) {
+        const existing = this._editStorageRows.find((sr) => sr.row === row);
+        if (existing) {
+            this._editStorageRows = this._editStorageRows.filter((sr) => sr.row !== row);
+        }
+        else {
+            this._editStorageRows = [...this._editStorageRows, { row, name: "Storage" }];
+        }
+    }
+    _updateStorageRowName(row, name) {
+        this._editStorageRows = this._editStorageRows.map((sr) => sr.row === row ? { ...sr, name } : sr);
+    }
+    _isStorageRow(row) {
+        return this._editStorageRows.some((sr) => sr.row === row);
     }
     async _saveAdd() {
         this._loading = true;
@@ -3133,8 +3198,9 @@ let RackSettingsDialog = class RackSettingsDialog extends i {
                     name: this._editCabinet.name || "New Rack",
                     rows: this._editCabinet.rows || 8,
                     cols: this._editCabinet.cols || 8,
-                    has_bottom_zone: this._editCabinet.has_bottom_zone || false,
-                    bottom_zone_name: this._editCabinet.bottom_zone_name || "Box Storage",
+                    has_bottom_zone: false,
+                    bottom_zone_name: "",
+                    storage_rows: this._editStorageRows,
                     order: this.cabinets.length,
                 },
             });
@@ -3153,6 +3219,8 @@ let RackSettingsDialog = class RackSettingsDialog extends i {
             const cabinetId = this._editCabinet.id;
             const newRows = this._editCabinet.rows || 8;
             const newCols = this._editCabinet.cols || 8;
+            // Filter out storage rows beyond the new row count
+            const validStorageRows = this._editStorageRows.filter((sr) => sr.row < newRows);
             await this.hass.callWS({
                 type: "wine_cellar/update_cabinet",
                 cabinet_id: cabinetId,
@@ -3160,15 +3228,16 @@ let RackSettingsDialog = class RackSettingsDialog extends i {
                     name: this._editCabinet.name,
                     rows: newRows,
                     cols: newCols,
-                    has_bottom_zone: this._editCabinet.has_bottom_zone,
-                    bottom_zone_name: this._editCabinet.bottom_zone_name,
+                    has_bottom_zone: false,
+                    bottom_zone_name: "",
+                    storage_rows: validStorageRows,
                 },
             });
-            // Unassign wines that are out of bounds
+            // Unassign wines that are out of bounds or on rows that became storage
             const outOfBounds = this.wines.filter((w) => w.cabinet_id === cabinetId &&
                 w.row != null &&
                 w.col != null &&
-                (w.row >= newRows || w.col >= newCols));
+                (w.row >= newRows || w.col >= newCols || validStorageRows.some((sr) => sr.row === w.row)));
             for (const wine of outOfBounds) {
                 await this.hass.callWS({
                     type: "wine_cellar/update_wine",
@@ -3248,40 +3317,45 @@ let RackSettingsDialog = class RackSettingsDialog extends i {
         return b `
       <div class="dialog-body">
         <div class="rack-list">
-          ${sorted.map((cab, idx) => b `
-              <div class="rack-item">
-                <div class="rack-info">
-                  <div class="rack-name">${cab.name}</div>
-                  <div class="rack-meta">
-                    ${cab.rows} × ${cab.cols} (${cab.rows * cab.cols} slots)
-                    · ${this._winesInCabinet(cab.id)} bottles
-                    ${cab.has_bottom_zone ? " · + zone" : ""}
+          ${sorted.map((cab, idx) => {
+            const storageCount = (cab.storage_rows || []).length;
+            cab.rows - storageCount;
+            return b `
+                <div class="rack-item">
+                  <div class="rack-info">
+                    <div class="rack-name">${cab.name}</div>
+                    <div class="rack-meta">
+                      ${cab.rows} rows × ${cab.cols} cols
+                      · ${this._winesInCabinet(cab.id)} bottles
+                      ${storageCount > 0 ? ` · ${storageCount} storage row${storageCount > 1 ? "s" : ""}` : ""}
+                      ${cab.has_bottom_zone ? " · + bottom zone" : ""}
+                    </div>
+                  </div>
+                  <div class="rack-actions">
+                    <button
+                      class="small-btn"
+                      @click=${() => this._moveUp(cab)}
+                      ?disabled=${idx === 0}
+                      title="Move up"
+                    >↑</button>
+                    <button
+                      class="small-btn"
+                      @click=${() => this._moveDown(cab)}
+                      ?disabled=${idx === sorted.length - 1}
+                      title="Move down"
+                    >↓</button>
+                    <button
+                      class="small-btn"
+                      @click=${() => this._startEdit(cab)}
+                    >Edit</button>
+                    <button
+                      class="small-btn danger"
+                      @click=${() => this._startDelete(cab)}
+                    >Del</button>
                   </div>
                 </div>
-                <div class="rack-actions">
-                  <button
-                    class="small-btn"
-                    @click=${() => this._moveUp(cab)}
-                    ?disabled=${idx === 0}
-                    title="Move up"
-                  >↑</button>
-                  <button
-                    class="small-btn"
-                    @click=${() => this._moveDown(cab)}
-                    ?disabled=${idx === sorted.length - 1}
-                    title="Move down"
-                  >↓</button>
-                  <button
-                    class="small-btn"
-                    @click=${() => this._startEdit(cab)}
-                  >Edit</button>
-                  <button
-                    class="small-btn danger"
-                    @click=${() => this._startDelete(cab)}
-                  >Del</button>
-                </div>
-              </div>
-            `)}
+              `;
+        })}
 
           <button class="add-rack-btn" @click=${this._startAdd}>
             + Add Rack
@@ -3295,6 +3369,7 @@ let RackSettingsDialog = class RackSettingsDialog extends i {
     }
     _renderForm() {
         const isEdit = this._mode === "edit";
+        const numRows = this._editCabinet.rows || 8;
         // Calculate out-of-bounds warning for edits
         let oobCount = 0;
         if (isEdit && this._editCabinet.id) {
@@ -3329,10 +3404,12 @@ let RackSettingsDialog = class RackSettingsDialog extends i {
               min="1"
               max="20"
               .value=${(this._editCabinet.rows || 8).toString()}
-              @input=${(e) => (this._editCabinet = {
-            ...this._editCabinet,
-            rows: parseInt(e.target.value) || 1,
-        })}
+              @input=${(e) => {
+            const newRows = parseInt(e.target.value) || 1;
+            this._editCabinet = { ...this._editCabinet, rows: newRows };
+            // Remove storage rows that are beyond the new row count
+            this._editStorageRows = this._editStorageRows.filter((sr) => sr.row < newRows);
+        }}
             />
           </div>
           <div class="form-group">
@@ -3350,39 +3427,47 @@ let RackSettingsDialog = class RackSettingsDialog extends i {
           </div>
         </div>
 
-        <div class="zone-toggle">
-          <input
-            type="checkbox"
-            id="zone-check"
-            .checked=${this._editCabinet.has_bottom_zone || false}
-            @change=${(e) => (this._editCabinet = {
-            ...this._editCabinet,
-            has_bottom_zone: e.target.checked,
+        <!-- Row layout editor -->
+        <div class="row-layout">
+          <div class="row-layout-title">Row Layout</div>
+          <div class="row-layout-hint">Tap a row to toggle between bottle slots and storage zone</div>
+          <div class="row-layout-list">
+            ${Array.from({ length: numRows }, (_, row) => {
+            const isStorage = this._isStorageRow(row);
+            const sr = this._editStorageRows.find((s) => s.row === row);
+            return b `
+                <div class="row-entry ${isStorage ? "storage" : ""}">
+                  <span class="row-num">R${row + 1}</span>
+                  <span class="row-type ${isStorage ? "is-storage" : ""}">
+                    ${isStorage ? "Storage" : `${this._editCabinet.cols || 8} slots`}
+                  </span>
+                  ${isStorage
+                ? b `
+                        <input
+                          type="text"
+                          .value=${sr?.name || "Storage"}
+                          @input=${(e) => this._updateStorageRowName(row, e.target.value)}
+                          @click=${(e) => e.stopPropagation()}
+                          placeholder="Zone name"
+                        />
+                      `
+                : A}
+                  <button
+                    class="toggle-btn"
+                    @click=${() => this._toggleStorageRow(row)}
+                  >
+                    ${isStorage ? "→ Slots" : "→ Storage"}
+                  </button>
+                </div>
+              `;
         })}
-          />
-          <label for="zone-check">Has bottom zone (box storage)</label>
+          </div>
         </div>
-
-        ${this._editCabinet.has_bottom_zone
-            ? b `
-              <div class="form-group">
-                <label>Zone Name</label>
-                <input
-                  type="text"
-                  .value=${this._editCabinet.bottom_zone_name || "Box Storage"}
-                  @input=${(e) => (this._editCabinet = {
-                ...this._editCabinet,
-                bottom_zone_name: e.target.value,
-            })}
-                />
-              </div>
-            `
-            : A}
 
         ${oobCount > 0
             ? b `
               <div class="warning-msg">
-                ⚠️ Shrinking will unassign ${oobCount} wine${oobCount > 1 ? "s" : ""} that are outside the new grid bounds.
+                Shrinking will unassign ${oobCount} wine${oobCount > 1 ? "s" : ""} that are outside the new grid bounds.
               </div>
             `
             : A}
@@ -3583,17 +3668,100 @@ RackSettingsDialog.styles = [
         background: rgba(114, 47, 55, 0.05);
       }
 
-      .zone-toggle {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        margin: 8px 0;
-        font-size: 0.9em;
+      /* Row layout editor */
+      .row-layout {
+        margin-top: 12px;
       }
 
-      .zone-toggle input[type="checkbox"] {
-        width: auto;
-        margin: 0;
+      .row-layout-title {
+        font-size: 0.85em;
+        font-weight: 600;
+        color: var(--wc-text);
+        margin-bottom: 8px;
+      }
+
+      .row-layout-hint {
+        font-size: 0.75em;
+        color: var(--wc-text-secondary);
+        margin-bottom: 8px;
+      }
+
+      .row-layout-list {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        max-height: 200px;
+        overflow-y: auto;
+        border: 1px solid var(--wc-border);
+        border-radius: 8px;
+        padding: 6px;
+      }
+
+      .row-entry {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 6px;
+        border-radius: 6px;
+        font-size: 0.8em;
+        transition: background 0.15s;
+      }
+
+      .row-entry:hover {
+        background: rgba(0, 0, 0, 0.04);
+      }
+
+      .row-entry.storage {
+        background: rgba(139, 105, 20, 0.1);
+        border: 1px solid rgba(139, 105, 20, 0.3);
+      }
+
+      .row-entry .row-num {
+        width: 32px;
+        font-weight: 600;
+        color: var(--wc-text-secondary);
+        font-size: 0.85em;
+      }
+
+      .row-entry .row-type {
+        flex: 1;
+        font-size: 0.85em;
+      }
+
+      .row-entry .row-type.is-storage {
+        color: #8b6914;
+        font-weight: 600;
+      }
+
+      .row-entry input[type="text"] {
+        width: 100px;
+        padding: 2px 6px;
+        border: 1px solid var(--wc-border);
+        border-radius: 4px;
+        font-size: 0.85em;
+        background: var(--wc-bg);
+        color: var(--wc-text);
+      }
+
+      .row-entry .toggle-btn {
+        background: transparent;
+        border: 1px solid var(--wc-border);
+        border-radius: 4px;
+        padding: 2px 8px;
+        font-size: 0.75em;
+        cursor: pointer;
+        color: var(--wc-text-secondary);
+        transition: all 0.15s;
+        white-space: nowrap;
+      }
+
+      .row-entry .toggle-btn:hover {
+        background: rgba(0, 0, 0, 0.06);
+      }
+
+      .row-entry.storage .toggle-btn {
+        color: #8b6914;
+        border-color: rgba(139, 105, 20, 0.4);
       }
     `,
 ];
@@ -3615,6 +3783,9 @@ __decorate([
 __decorate([
     r()
 ], RackSettingsDialog.prototype, "_editCabinet", void 0);
+__decorate([
+    r()
+], RackSettingsDialog.prototype, "_editStorageRows", void 0);
 __decorate([
     r()
 ], RackSettingsDialog.prototype, "_deleteCabinet", void 0);
@@ -3640,7 +3811,7 @@ let WineCellarCard = class WineCellarCard extends i {
         this._selectedWine = null;
         this._showDetail = false;
         this._showAddDialog = false;
-        this._addPreselect = { cabinet: "", row: null, col: null };
+        this._addPreselect = { cabinet: "", row: null, col: null, zone: "" };
         this._loading = true;
         this._showRackSettings = false;
         this._copiedWine = null;
@@ -3722,18 +3893,18 @@ let WineCellarCard = class WineCellarCard extends i {
             this._showDetail = true;
         }
         else {
-            this._addPreselect = { cabinet: cabinet.id, row, col };
+            this._addPreselect = { cabinet: cabinet.id, row, col, zone: "" };
             this._showAddDialog = true;
         }
     }
     _onZoneClick(e) {
-        const { wine, cabinet } = e.detail;
+        const { wine, cabinet, zone } = e.detail;
         if (wine) {
             this._selectedWine = wine;
             this._showDetail = true;
         }
         else {
-            this._addPreselect = { cabinet: cabinet.id, row: null, col: null };
+            this._addPreselect = { cabinet: cabinet.id, row: null, col: null, zone: zone || "bottom" };
             this._showAddDialog = true;
         }
     }
@@ -3859,7 +4030,7 @@ let WineCellarCard = class WineCellarCard extends i {
             <button
               class="btn btn-primary"
               @click=${() => {
-            this._addPreselect = { cabinet: "", row: null, col: null };
+            this._addPreselect = { cabinet: "", row: null, col: null, zone: "" };
             this._showAddDialog = true;
         }}
             >
@@ -4030,7 +4201,7 @@ let WineCellarCard = class WineCellarCard extends i {
           @copy-wine=${(e) => this._copyWine(e.detail.wine)}
           @move-wine=${(e) => {
             this._showDetail = false;
-            this._addPreselect = { cabinet: "", row: null, col: null };
+            this._addPreselect = { cabinet: "", row: null, col: null, zone: "" };
             // TODO: implement move flow
         }}
         ></wine-detail-dialog>
@@ -4043,6 +4214,7 @@ let WineCellarCard = class WineCellarCard extends i {
           .preselectedCabinet=${this._addPreselect.cabinet}
           .preselectedRow=${this._addPreselect.row}
           .preselectedCol=${this._addPreselect.col}
+          .preselectedZone=${this._addPreselect.zone}
           @close=${() => (this._showAddDialog = false)}
           @wine-added=${this._onWineAdded}
         ></add-wine-dialog>

@@ -28,7 +28,7 @@ export class WineCellarCard extends LitElement {
   @state() private _selectedWine: Wine | null = null;
   @state() private _showDetail = false;
   @state() private _showAddDialog = false;
-  @state() private _addPreselect = { cabinet: "", row: null as number | null, col: null as number | null };
+  @state() private _addPreselect = { cabinet: "", row: null as number | null, col: null as number | null, zone: "" };
   @state() private _loading = true;
   @state() private _showRackSettings = false;
   @state() private _copiedWine: Wine | null = null;
@@ -332,18 +332,18 @@ export class WineCellarCard extends LitElement {
       this._selectedWine = wine;
       this._showDetail = true;
     } else {
-      this._addPreselect = { cabinet: cabinet.id, row, col };
+      this._addPreselect = { cabinet: cabinet.id, row, col, zone: "" };
       this._showAddDialog = true;
     }
   }
 
   private _onZoneClick(e: CustomEvent) {
-    const { wine, cabinet } = e.detail;
+    const { wine, cabinet, zone } = e.detail;
     if (wine) {
       this._selectedWine = wine;
       this._showDetail = true;
     } else {
-      this._addPreselect = { cabinet: cabinet.id, row: null, col: null };
+      this._addPreselect = { cabinet: cabinet.id, row: null, col: null, zone: zone || "bottom" };
       this._showAddDialog = true;
     }
   }
@@ -476,7 +476,7 @@ export class WineCellarCard extends LitElement {
             <button
               class="btn btn-primary"
               @click=${() => {
-                this._addPreselect = { cabinet: "", row: null, col: null };
+                this._addPreselect = { cabinet: "", row: null, col: null, zone: "" };
                 this._showAddDialog = true;
               }}
             >
@@ -660,7 +660,7 @@ export class WineCellarCard extends LitElement {
           @copy-wine=${(e: CustomEvent) => this._copyWine(e.detail.wine)}
           @move-wine=${(e: CustomEvent) => {
             this._showDetail = false;
-            this._addPreselect = { cabinet: "", row: null, col: null };
+            this._addPreselect = { cabinet: "", row: null, col: null, zone: "" };
             // TODO: implement move flow
           }}
         ></wine-detail-dialog>
@@ -673,6 +673,7 @@ export class WineCellarCard extends LitElement {
           .preselectedCabinet=${this._addPreselect.cabinet}
           .preselectedRow=${this._addPreselect.row}
           .preselectedCol=${this._addPreselect.col}
+          .preselectedZone=${this._addPreselect.zone}
           @close=${() => (this._showAddDialog = false)}
           @wine-added=${this._onWineAdded}
         ></add-wine-dialog>

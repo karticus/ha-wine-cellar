@@ -55,6 +55,10 @@ class WineCellarStorage:
             await self.async_save()
         else:
             self._data = data
+            # Migrate: ensure all cabinets have storage_rows field
+            for cab in self._data.get(CONF_CABINETS, []):
+                if "storage_rows" not in cab:
+                    cab["storage_rows"] = []
 
     async def async_save(self) -> None:
         """Save data to storage."""
@@ -145,6 +149,7 @@ class WineCellarStorage:
             "cols": cabinet_data.get("cols", 8),
             "has_bottom_zone": cabinet_data.get("has_bottom_zone", False),
             "bottom_zone_name": cabinet_data.get("bottom_zone_name", "Storage"),
+            "storage_rows": cabinet_data.get("storage_rows", []),
             "order": cabinet_data.get("order", len(self.cabinets)),
         }
         self._data[CONF_CABINETS].append(cabinet)
@@ -178,9 +183,12 @@ class WineCellarStorage:
     def get_stats(self) -> dict[str, Any]:
         """Get cellar statistics."""
         total_bottles = len(self.wines)
-        total_capacity = sum(
-            c.get("rows", 0) * c.get("cols", 0) for c in self.cabinets if c.get("type") == "grid"
-        )
+        total_capacity = 0
+        for c in self.cabinets:
+            if c.get("type") == "grid":
+                storage_row_count = len(c.get("storage_rows", []))
+                grid_rows = c.get("rows", 0) - storage_row_count
+                total_capacity += max(0, grid_rows) * c.get("cols", 0)
         by_type: dict[str, int] = {}
         by_cabinet: dict[str, int] = {}
         for wine in self.wines:

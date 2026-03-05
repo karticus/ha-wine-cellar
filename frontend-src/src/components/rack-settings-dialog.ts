@@ -1,6 +1,6 @@
 import { LitElement, html, css, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
-import { Cabinet, Wine } from "../models";
+import { Cabinet, Wine, StorageRow } from "../models";
 import { sharedStyles } from "../styles";
 
 type Mode = "list" | "add" | "edit" | "delete-confirm";
@@ -14,6 +14,7 @@ export class RackSettingsDialog extends LitElement {
 
   @state() private _mode: Mode = "list";
   @state() private _editCabinet: Partial<Cabinet> = {};
+  @state() private _editStorageRows: StorageRow[] = [];
   @state() private _deleteCabinet: Cabinet | null = null;
   @state() private _loading = false;
   @state() private _error = "";
@@ -136,17 +137,100 @@ export class RackSettingsDialog extends LitElement {
         background: rgba(114, 47, 55, 0.05);
       }
 
-      .zone-toggle {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        margin: 8px 0;
-        font-size: 0.9em;
+      /* Row layout editor */
+      .row-layout {
+        margin-top: 12px;
       }
 
-      .zone-toggle input[type="checkbox"] {
-        width: auto;
-        margin: 0;
+      .row-layout-title {
+        font-size: 0.85em;
+        font-weight: 600;
+        color: var(--wc-text);
+        margin-bottom: 8px;
+      }
+
+      .row-layout-hint {
+        font-size: 0.75em;
+        color: var(--wc-text-secondary);
+        margin-bottom: 8px;
+      }
+
+      .row-layout-list {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        max-height: 200px;
+        overflow-y: auto;
+        border: 1px solid var(--wc-border);
+        border-radius: 8px;
+        padding: 6px;
+      }
+
+      .row-entry {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 6px;
+        border-radius: 6px;
+        font-size: 0.8em;
+        transition: background 0.15s;
+      }
+
+      .row-entry:hover {
+        background: rgba(0, 0, 0, 0.04);
+      }
+
+      .row-entry.storage {
+        background: rgba(139, 105, 20, 0.1);
+        border: 1px solid rgba(139, 105, 20, 0.3);
+      }
+
+      .row-entry .row-num {
+        width: 32px;
+        font-weight: 600;
+        color: var(--wc-text-secondary);
+        font-size: 0.85em;
+      }
+
+      .row-entry .row-type {
+        flex: 1;
+        font-size: 0.85em;
+      }
+
+      .row-entry .row-type.is-storage {
+        color: #8b6914;
+        font-weight: 600;
+      }
+
+      .row-entry input[type="text"] {
+        width: 100px;
+        padding: 2px 6px;
+        border: 1px solid var(--wc-border);
+        border-radius: 4px;
+        font-size: 0.85em;
+        background: var(--wc-bg);
+        color: var(--wc-text);
+      }
+
+      .row-entry .toggle-btn {
+        background: transparent;
+        border: 1px solid var(--wc-border);
+        border-radius: 4px;
+        padding: 2px 8px;
+        font-size: 0.75em;
+        cursor: pointer;
+        color: var(--wc-text-secondary);
+        transition: all 0.15s;
+        white-space: nowrap;
+      }
+
+      .row-entry .toggle-btn:hover {
+        background: rgba(0, 0, 0, 0.06);
+      }
+
+      .row-entry.storage .toggle-btn {
+        color: #8b6914;
+        border-color: rgba(139, 105, 20, 0.4);
       }
     `,
   ];
@@ -196,20 +280,42 @@ export class RackSettingsDialog extends LitElement {
       rows: 8,
       cols: 8,
       has_bottom_zone: false,
-      bottom_zone_name: "Box Storage",
+      bottom_zone_name: "",
     };
+    this._editStorageRows = [];
   }
 
   private _startEdit(cabinet: Cabinet) {
     this._mode = "edit";
     this._error = "";
     this._editCabinet = { ...cabinet };
+    // Initialize storage rows from cabinet data
+    this._editStorageRows = [...(cabinet.storage_rows || [])];
   }
 
   private _startDelete(cabinet: Cabinet) {
     this._mode = "delete-confirm";
     this._error = "";
     this._deleteCabinet = cabinet;
+  }
+
+  private _toggleStorageRow(row: number) {
+    const existing = this._editStorageRows.find((sr) => sr.row === row);
+    if (existing) {
+      this._editStorageRows = this._editStorageRows.filter((sr) => sr.row !== row);
+    } else {
+      this._editStorageRows = [...this._editStorageRows, { row, name: "Storage" }];
+    }
+  }
+
+  private _updateStorageRowName(row: number, name: string) {
+    this._editStorageRows = this._editStorageRows.map((sr) =>
+      sr.row === row ? { ...sr, name } : sr
+    );
+  }
+
+  private _isStorageRow(row: number): boolean {
+    return this._editStorageRows.some((sr) => sr.row === row);
   }
 
   private async _saveAdd() {
@@ -222,8 +328,9 @@ export class RackSettingsDialog extends LitElement {
           name: this._editCabinet.name || "New Rack",
           rows: this._editCabinet.rows || 8,
           cols: this._editCabinet.cols || 8,
-          has_bottom_zone: this._editCabinet.has_bottom_zone || false,
-          bottom_zone_name: this._editCabinet.bottom_zone_name || "Box Storage",
+          has_bottom_zone: false,
+          bottom_zone_name: "",
+          storage_rows: this._editStorageRows,
           order: this.cabinets.length,
         },
       });
@@ -243,6 +350,9 @@ export class RackSettingsDialog extends LitElement {
       const newRows = this._editCabinet.rows || 8;
       const newCols = this._editCabinet.cols || 8;
 
+      // Filter out storage rows beyond the new row count
+      const validStorageRows = this._editStorageRows.filter((sr) => sr.row < newRows);
+
       await this.hass.callWS({
         type: "wine_cellar/update_cabinet",
         cabinet_id: cabinetId,
@@ -250,18 +360,19 @@ export class RackSettingsDialog extends LitElement {
           name: this._editCabinet.name,
           rows: newRows,
           cols: newCols,
-          has_bottom_zone: this._editCabinet.has_bottom_zone,
-          bottom_zone_name: this._editCabinet.bottom_zone_name,
+          has_bottom_zone: false,
+          bottom_zone_name: "",
+          storage_rows: validStorageRows,
         },
       });
 
-      // Unassign wines that are out of bounds
+      // Unassign wines that are out of bounds or on rows that became storage
       const outOfBounds = this.wines.filter(
         (w) =>
           w.cabinet_id === cabinetId &&
           w.row != null &&
           w.col != null &&
-          (w.row >= newRows || w.col >= newCols)
+          (w.row >= newRows || w.col >= newCols || validStorageRows.some((sr) => sr.row === w.row))
       );
       for (const wine of outOfBounds) {
         await this.hass.callWS({
@@ -343,40 +454,45 @@ export class RackSettingsDialog extends LitElement {
       <div class="dialog-body">
         <div class="rack-list">
           ${sorted.map(
-            (cab, idx) => html`
-              <div class="rack-item">
-                <div class="rack-info">
-                  <div class="rack-name">${cab.name}</div>
-                  <div class="rack-meta">
-                    ${cab.rows} × ${cab.cols} (${cab.rows * cab.cols} slots)
-                    · ${this._winesInCabinet(cab.id)} bottles
-                    ${cab.has_bottom_zone ? " · + zone" : ""}
+            (cab, idx) => {
+              const storageCount = (cab.storage_rows || []).length;
+              const gridRows = cab.rows - storageCount;
+              return html`
+                <div class="rack-item">
+                  <div class="rack-info">
+                    <div class="rack-name">${cab.name}</div>
+                    <div class="rack-meta">
+                      ${cab.rows} rows × ${cab.cols} cols
+                      · ${this._winesInCabinet(cab.id)} bottles
+                      ${storageCount > 0 ? ` · ${storageCount} storage row${storageCount > 1 ? "s" : ""}` : ""}
+                      ${cab.has_bottom_zone ? " · + bottom zone" : ""}
+                    </div>
+                  </div>
+                  <div class="rack-actions">
+                    <button
+                      class="small-btn"
+                      @click=${() => this._moveUp(cab)}
+                      ?disabled=${idx === 0}
+                      title="Move up"
+                    >↑</button>
+                    <button
+                      class="small-btn"
+                      @click=${() => this._moveDown(cab)}
+                      ?disabled=${idx === sorted.length - 1}
+                      title="Move down"
+                    >↓</button>
+                    <button
+                      class="small-btn"
+                      @click=${() => this._startEdit(cab)}
+                    >Edit</button>
+                    <button
+                      class="small-btn danger"
+                      @click=${() => this._startDelete(cab)}
+                    >Del</button>
                   </div>
                 </div>
-                <div class="rack-actions">
-                  <button
-                    class="small-btn"
-                    @click=${() => this._moveUp(cab)}
-                    ?disabled=${idx === 0}
-                    title="Move up"
-                  >↑</button>
-                  <button
-                    class="small-btn"
-                    @click=${() => this._moveDown(cab)}
-                    ?disabled=${idx === sorted.length - 1}
-                    title="Move down"
-                  >↓</button>
-                  <button
-                    class="small-btn"
-                    @click=${() => this._startEdit(cab)}
-                  >Edit</button>
-                  <button
-                    class="small-btn danger"
-                    @click=${() => this._startDelete(cab)}
-                  >Del</button>
-                </div>
-              </div>
-            `
+              `;
+            }
           )}
 
           <button class="add-rack-btn" @click=${this._startAdd}>
@@ -392,7 +508,7 @@ export class RackSettingsDialog extends LitElement {
 
   private _renderForm() {
     const isEdit = this._mode === "edit";
-    const title = isEdit ? "Edit Rack" : "Add Rack";
+    const numRows = this._editCabinet.rows || 8;
 
     // Calculate out-of-bounds warning for edits
     let oobCount = 0;
@@ -434,11 +550,12 @@ export class RackSettingsDialog extends LitElement {
               min="1"
               max="20"
               .value=${(this._editCabinet.rows || 8).toString()}
-              @input=${(e: InputEvent) =>
-                (this._editCabinet = {
-                  ...this._editCabinet,
-                  rows: parseInt((e.target as HTMLInputElement).value) || 1,
-                })}
+              @input=${(e: InputEvent) => {
+                const newRows = parseInt((e.target as HTMLInputElement).value) || 1;
+                this._editCabinet = { ...this._editCabinet, rows: newRows };
+                // Remove storage rows that are beyond the new row count
+                this._editStorageRows = this._editStorageRows.filter((sr) => sr.row < newRows);
+              }}
             />
           </div>
           <div class="form-group">
@@ -457,41 +574,48 @@ export class RackSettingsDialog extends LitElement {
           </div>
         </div>
 
-        <div class="zone-toggle">
-          <input
-            type="checkbox"
-            id="zone-check"
-            .checked=${this._editCabinet.has_bottom_zone || false}
-            @change=${(e: Event) =>
-              (this._editCabinet = {
-                ...this._editCabinet,
-                has_bottom_zone: (e.target as HTMLInputElement).checked,
-              })}
-          />
-          <label for="zone-check">Has bottom zone (box storage)</label>
+        <!-- Row layout editor -->
+        <div class="row-layout">
+          <div class="row-layout-title">Row Layout</div>
+          <div class="row-layout-hint">Tap a row to toggle between bottle slots and storage zone</div>
+          <div class="row-layout-list">
+            ${Array.from({ length: numRows }, (_, row) => {
+              const isStorage = this._isStorageRow(row);
+              const sr = this._editStorageRows.find((s) => s.row === row);
+              return html`
+                <div class="row-entry ${isStorage ? "storage" : ""}">
+                  <span class="row-num">R${row + 1}</span>
+                  <span class="row-type ${isStorage ? "is-storage" : ""}">
+                    ${isStorage ? "Storage" : `${this._editCabinet.cols || 8} slots`}
+                  </span>
+                  ${isStorage
+                    ? html`
+                        <input
+                          type="text"
+                          .value=${sr?.name || "Storage"}
+                          @input=${(e: InputEvent) =>
+                            this._updateStorageRowName(row, (e.target as HTMLInputElement).value)}
+                          @click=${(e: Event) => e.stopPropagation()}
+                          placeholder="Zone name"
+                        />
+                      `
+                    : nothing}
+                  <button
+                    class="toggle-btn"
+                    @click=${() => this._toggleStorageRow(row)}
+                  >
+                    ${isStorage ? "→ Slots" : "→ Storage"}
+                  </button>
+                </div>
+              `;
+            })}
+          </div>
         </div>
-
-        ${this._editCabinet.has_bottom_zone
-          ? html`
-              <div class="form-group">
-                <label>Zone Name</label>
-                <input
-                  type="text"
-                  .value=${this._editCabinet.bottom_zone_name || "Box Storage"}
-                  @input=${(e: InputEvent) =>
-                    (this._editCabinet = {
-                      ...this._editCabinet,
-                      bottom_zone_name: (e.target as HTMLInputElement).value,
-                    })}
-                />
-              </div>
-            `
-          : nothing}
 
         ${oobCount > 0
           ? html`
               <div class="warning-msg">
-                ⚠️ Shrinking will unassign ${oobCount} wine${oobCount > 1 ? "s" : ""} that are outside the new grid bounds.
+                Shrinking will unassign ${oobCount} wine${oobCount > 1 ? "s" : ""} that are outside the new grid bounds.
               </div>
             `
           : nothing}

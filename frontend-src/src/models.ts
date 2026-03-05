@@ -31,6 +31,11 @@ export interface Wine {
   disposition: string;
 }
 
+export interface StorageRow {
+  row: number;
+  name: string;
+}
+
 export interface Cabinet {
   id: string;
   name: string;
@@ -39,6 +44,7 @@ export interface Cabinet {
   cols: number;
   has_bottom_zone: boolean;
   bottom_zone_name: string;
+  storage_rows: StorageRow[];
   order: number;
 }
 
