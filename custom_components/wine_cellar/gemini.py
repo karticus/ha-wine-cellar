@@ -15,13 +15,13 @@ _LOGGER = logging.getLogger(__name__)
 
 GEMINI_API_URL = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
-    "gemini-2.0-flash:generateContent"
+    "gemini-2.5-flash:generateContent"
 )
 
 LABEL_PROMPT = """You are a wine label recognition expert. Analyze this wine label image and extract the following information. Return ONLY a JSON object with these exact fields:
 
 {
-  "name": "the wine name as shown on the label",
+  "name": "the full wine name including style (e.g. Crémant Demi-Sec, Cabernet Sauvignon Reserve)",
   "winery": "the producer/winery/domaine/château name",
   "vintage": 2020,
   "type": "red",
@@ -31,11 +31,12 @@ LABEL_PROMPT = """You are a wine label recognition expert. Analyze this wine lab
 }
 
 Rules:
-- "vintage" must be a 4-digit year as an integer, or null if not visible
+- "name" should include the wine name AND style/designation (Brut, Demi-Sec, Reserve, Grand Cru, etc.) but NOT the winery name
+- "vintage" must be a 4-digit year as an integer, or null if not visible (NV wines = null)
 - "type" must be exactly one of: "red", "white", "rosé", "sparkling", "dessert"
 - If you cannot determine a field, use an empty string "" (or null for vintage)
 - Do not guess or fabricate information not visible on the label
-- For "type", infer from visual cues (bottle color, label text like "Blanc", "Rosé", "Brut") if not explicitly stated
+- For "type", infer from visual cues (bottle color, label text like "Blanc", "Rosé", "Brut", "Méthode Champenoise") if not explicitly stated
 - If the image is not a wine label, return {"error": "not_a_wine_label"}"""
 
 
