@@ -3,7 +3,7 @@
   "name": "Wine Cellar Tracker",
   "codeowners": ["@BaconWappedBitcoin"],
   "config_flow": true,
-  "dependencies": ["http", "websocket_api"],
+  "dependencies": ["http", "lovelace", "websocket_api"],
   "documentation": "https://github.com/BaconWappedBitcoin/ha-wine-cellar",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/BaconWappedBitcoin/ha-wine-cellar/issues",

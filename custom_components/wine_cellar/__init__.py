@@ -21,11 +21,7 @@ _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS = ["sensor"]
 
-
-async def async_setup(hass: HomeAssistant, config: dict) -> bool:
-    """Set up the Wine Cellar component."""
-    hass.data.setdefault(DOMAIN, {})
-    return True
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
 def _register_static_path(hass: HomeAssistant) -> None:
