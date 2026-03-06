@@ -500,17 +500,23 @@ export class AddWineDialog extends LitElement {
       if (result.result) {
         // Resize captured photo to thumbnail for storage
         const thumbUrl = await this._resizeImageForStorage(e.detail.image);
+        const r = result.result;
         this._wineData = {
           ...this._wineData,
-          name: result.result.name || "",
-          winery: result.result.winery || "",
-          type: result.result.type || "red",
-          vintage: result.result.vintage,
-          region: result.result.region || "",
-          country: result.result.country || "",
-          grape_variety: result.result.grape_variety || "",
-          drink_by: result.result.drink_by || "",
-          notes: result.result.notes || "",
+          name: r.name || "",
+          winery: r.winery || "",
+          type: r.type || "red",
+          vintage: r.vintage,
+          region: r.region || "",
+          country: r.country || "",
+          grape_variety: r.grape_variety || "",
+          disposition: r.disposition || "",
+          drink_by: r.drink_by || "",
+          drink_window: r.drink_window || "",
+          description: r.description || "",
+          retail_price: r.estimated_price || null,
+          ai_ratings: r.ai_ratings || null,
+          notes: r.notes || "",
           image_url: thumbUrl,
         };
         this._scanMode = "idle";

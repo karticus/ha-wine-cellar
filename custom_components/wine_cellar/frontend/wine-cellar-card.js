@@ -341,6 +341,8 @@ let CabinetGrid = class CabinetGrid extends i {
         super(...arguments);
         this.wines = [];
         this._dragOverCell = null;
+        // --- Long press (mobile move) ---
+        this._longPressTimer = null;
     }
     _getWineAt(row, col) {
         return this.wines.find((w) => w.cabinet_id === this.cabinet.id && w.row === row && w.col === col);
@@ -393,6 +395,28 @@ let CabinetGrid = class CabinetGrid extends i {
             "#DAA520": "#f0c040", // dessert → brighter gold
         };
         return brightMap[hex] || hex;
+    }
+    _onTouchStart(wine) {
+        this._longPressTimer = window.setTimeout(() => {
+            this._longPressTimer = null;
+            this.dispatchEvent(new CustomEvent("wine-longpress", {
+                detail: { wine, cabinet: this.cabinet },
+                bubbles: true,
+                composed: true,
+            }));
+        }, 500);
+    }
+    _onTouchEnd() {
+        if (this._longPressTimer !== null) {
+            clearTimeout(this._longPressTimer);
+            this._longPressTimer = null;
+        }
+    }
+    _onTouchMove() {
+        if (this._longPressTimer !== null) {
+            clearTimeout(this._longPressTimer);
+            this._longPressTimer = null;
+        }
     }
     // --- Drag and drop ---
     _onDragStart(e, wine, row, col, zone) {
@@ -498,6 +522,9 @@ let CabinetGrid = class CabinetGrid extends i {
               style=${wine ? `background: ${bgColor}; --bottle-type-color: ${ringColor}` : ""}
               draggable=${wine ? "true" : "false"}
               @click=${() => this._onCellClick(row, col, wine)}
+              @touchstart=${wine ? () => this._onTouchStart(wine) : A}
+              @touchend=${wine ? () => this._onTouchEnd() : A}
+              @touchmove=${wine ? () => this._onTouchMove() : A}
               @dragstart=${wine ? (e) => this._onDragStart(e, wine, row, col) : A}
               @dragend=${wine ? (e) => this._onDragEnd(e) : A}
               @dragover=${(e) => this._onDragOver(e, cellKey)}
@@ -2758,17 +2785,23 @@ let AddWineDialog = class AddWineDialog extends i {
             if (result.result) {
                 // Resize captured photo to thumbnail for storage
                 const thumbUrl = await this._resizeImageForStorage(e.detail.image);
+                const r = result.result;
                 this._wineData = {
                     ...this._wineData,
-                    name: result.result.name || "",
-                    winery: result.result.winery || "",
-                    type: result.result.type || "red",
-                    vintage: result.result.vintage,
-                    region: result.result.region || "",
-                    country: result.result.country || "",
-                    grape_variety: result.result.grape_variety || "",
-                    drink_by: result.result.drink_by || "",
-                    notes: result.result.notes || "",
+                    name: r.name || "",
+                    winery: r.winery || "",
+                    type: r.type || "red",
+                    vintage: r.vintage,
+                    region: r.region || "",
+                    country: r.country || "",
+                    grape_variety: r.grape_variety || "",
+                    disposition: r.disposition || "",
+                    drink_by: r.drink_by || "",
+                    drink_window: r.drink_window || "",
+                    description: r.description || "",
+                    retail_price: r.estimated_price || null,
+                    ai_ratings: r.ai_ratings || null,
+                    notes: r.notes || "",
                     image_url: thumbUrl,
                 };
                 this._scanMode = "idle";
@@ -4425,6 +4458,7 @@ let WineCellarCard = class WineCellarCard extends i {
         this._loading = true;
         this._showRackSettings = false;
         this._copiedWine = null;
+        this._movingWine = null;
         this._analyzing = false;
         this._toast = "";
         this._hasGemini = false;
@@ -4507,6 +4541,11 @@ let WineCellarCard = class WineCellarCard extends i {
             this._pasteWine(cabinet.id, row, col);
             return;
         }
+        // If we're moving a wine, place it here
+        if (this._movingWine) {
+            this._executeMoveWine(cabinet.id, row, col, "");
+            return;
+        }
         if (wine) {
             this._selectedWine = wine;
             this._showDetail = true;
@@ -4518,6 +4557,11 @@ let WineCellarCard = class WineCellarCard extends i {
     }
     _onZoneClick(e) {
         const { wine, cabinet, zone } = e.detail;
+        // If we're moving a wine, place it in this zone
+        if (this._movingWine && !wine) {
+            this._executeMoveWine(cabinet.id, null, null, zone || "bottom");
+            return;
+        }
         if (wine) {
             this._selectedWine = wine;
             this._showDetail = true;
@@ -4525,6 +4569,27 @@ let WineCellarCard = class WineCellarCard extends i {
         else {
             this._addPreselect = { cabinet: cabinet.id, row: null, col: null, zone: zone || "bottom" };
             this._showAddDialog = true;
+        }
+    }
+    async _executeMoveWine(cabinetId, row, col, zone) {
+        if (!this._movingWine)
+            return;
+        try {
+            await this.hass.callWS({
+                type: "wine_cellar/move_wine",
+                wine_id: this._movingWine.id,
+                cabinet_id: cabinetId,
+                row,
+                col,
+                zone,
+            });
+            this._showToast(`Moved "${this._movingWine.name}"`);
+            this._movingWine = null;
+            await this._loadData();
+        }
+        catch (err) {
+            console.error("Failed to move wine:", err);
+            this._showToast("Failed to move wine");
         }
     }
     async _onWineDrop(e) {
@@ -4711,6 +4776,16 @@ let WineCellarCard = class WineCellarCard extends i {
             `
             : A}
 
+        <!-- Move mode banner -->
+        ${this._movingWine
+            ? b `
+              <div class="copy-banner">
+                <span>📦 Moving "${this._movingWine.name}" — tap a cell to place it</span>
+                <button @click=${() => (this._movingWine = null)}>✕ Cancel</button>
+              </div>
+            `
+            : A}
+
         <!-- Stats bar -->
         ${this._stats
             ? b `
@@ -4773,6 +4848,10 @@ let WineCellarCard = class WineCellarCard extends i {
                           @cell-click=${this._onCellClick}
                           @zone-click=${this._onZoneClick}
                           @wine-drop=${this._onWineDrop}
+                          @wine-longpress=${(e) => {
+                    this._movingWine = e.detail.wine;
+                    this._showToast(`Tap a cell to move "${e.detail.wine.name}"`);
+                }}
                         ></cabinet-grid>
                       `)
                 : this._cabinets
@@ -4873,8 +4952,8 @@ let WineCellarCard = class WineCellarCard extends i {
           @copy-wine=${(e) => this._copyWine(e.detail.wine)}
           @move-wine=${(e) => {
             this._showDetail = false;
-            this._addPreselect = { cabinet: "", row: null, col: null, zone: "" };
-            // TODO: implement move flow
+            this._movingWine = e.detail.wine;
+            this._showToast(`Tap a cell to move "${e.detail.wine.name}"`);
         }}
         ></wine-detail-dialog>
 
@@ -5155,6 +5234,9 @@ __decorate([
 __decorate([
     r()
 ], WineCellarCard.prototype, "_copiedWine", void 0);
+__decorate([
+    r()
+], WineCellarCard.prototype, "_movingWine", void 0);
 __decorate([
     r()
 ], WineCellarCard.prototype, "_analyzing", void 0);

@@ -18,7 +18,7 @@ GEMINI_API_URL = (
     "gemini-2.5-flash:generateContent"
 )
 
-LABEL_PROMPT = """You are a wine label recognition expert. Analyze this wine label image and extract the following information. Return ONLY a JSON object with these exact fields:
+LABEL_PROMPT = """You are a master sommelier and wine label recognition expert. The current year is 2026. Analyze this wine label image, identify the wine, and provide a full assessment. Return ONLY a JSON object with these exact fields:
 
 {
   "name": "the full wine name including style (e.g. Crémant Demi-Sec, Cabernet Sauvignon Reserve)",
@@ -27,21 +27,43 @@ LABEL_PROMPT = """You are a wine label recognition expert. Analyze this wine lab
   "type": "red",
   "region": "the wine region (e.g. Bordeaux, Napa Valley, Barossa Valley)",
   "country": "the country of origin",
-  "grape_variety": "grape varieties if mentioned on label",
-  "drink_by": "estimated optimal drink-by year based on wine type and vintage",
-  "notes": "brief description of the wine style, appellation, or any notable info from the label"
+  "grape_variety": "grape varieties if mentioned on label or known for this wine",
+  "disposition": "D",
+  "drink_by": "2028",
+  "drink_window": "2025-2028",
+  "description": "2-3 sentence tasting profile",
+  "estimated_price": null,
+  "rating_ws": null,
+  "rating_rp": null,
+  "rating_jd": null,
+  "rating_ag": null,
+  "notes": "brief notes from the label"
 }
 
-Rules:
+Label reading rules:
 - "name" should include the wine name AND style/designation (Brut, Demi-Sec, Reserve, Grand Cru, etc.) but NOT the winery name
 - "vintage" must be a 4-digit year as an integer, or null if not visible (NV wines = null)
 - "type" must be exactly one of: "red", "white", "rosé", "sparkling", "dessert"
-- "drink_by" should be a year string like "2028" based on wine aging potential. Be conservative: everyday wines 1-3 years from vintage, quality reds 3-7 years, premium reds 10-15 years, whites 1-3 years, rosé 1-2 years, sparkling 2-3 years. Use "" if unknown.
-- "notes" should be a short description (1-2 sentences) about the wine based on what you see on the label (appellation, classification, style).
-- If you cannot determine a field, use an empty string "" (or null for vintage)
-- Do not guess or fabricate information not visible on the label
-- For "type", infer from visual cues (bottle color, label text like "Blanc", "Rosé", "Brut", "Méthode Champenoise") if not explicitly stated
-- If the image is not a wine label, return {"error": "not_a_wine_label"}"""
+- For "type", infer from visual cues (bottle color, label text like "Blanc", "Rosé", "Brut") if not explicitly stated
+- If the image is not a wine label, return {"error": "not_a_wine_label"}
+
+Wine analysis rules:
+- "disposition": "D" = Drink Now, "H" = Hold, "P" = Past Peak
+- "drink_by": the LAST year of the drinking window
+- "drink_window": optimal drinking window as "YYYY-YYYY" range
+- Aging guidelines — be conservative:
+  - Everyday reds/whites (under $20): 1-3 years from vintage = "Drink Now"
+  - Quality reds ($20-50): 3-7 years from vintage
+  - Premium Bordeaux, Barolo, Napa Cab ($50+): 10-15 years, rarely more than 20
+  - Rosé: 1-2 years = always "Drink Now"
+  - Most whites: 1-3 years. Quality Chardonnay/Riesling: 3-5 years
+  - Sparkling NV: 2-3 years. Vintage Champagne: 5-10 years
+  - Dessert wines: 10-20+ years
+  - NV wines: "Drink Now" with drink_window "2026-2027"
+- "description": Professional tasting-style description of this wine's character
+- "estimated_price": estimated current US retail price as a number (e.g. 45.00). Use null only if truly unknown.
+- Rating fields (rating_ws, rating_rp, rating_jd, rating_ag): critic scores out of 100 if known. Use null if unknown. Do NOT fabricate.
+- "notes": brief info from the label itself (appellation, classification, etc.)"""
 
 
 class GeminiVisionClient:
@@ -167,6 +189,28 @@ class GeminiVisionClient:
                 if not name:
                     return {"error": "Could not read wine name from label"}
 
+                # Parse estimated price
+                est_price = result.get("estimated_price")
+                if est_price is not None:
+                    try:
+                        est_price = round(float(est_price), 2)
+                        if est_price <= 0:
+                            est_price = None
+                    except (ValueError, TypeError):
+                        est_price = None
+
+                # Parse disposition
+                disp = result.get("disposition", "")
+                if disp not in ("D", "H", "P"):
+                    disp = ""
+
+                # Parse AI ratings
+                ai_ratings: dict[str, int] = {}
+                for key in ("rating_ws", "rating_rp", "rating_jd", "rating_ag"):
+                    val = result.get(key)
+                    if val and isinstance(val, (int, float)) and 50 <= val <= 100:
+                        ai_ratings[key] = int(val)
+
                 return {
                     "name": name,
                     "winery": str(result.get("winery", "")).strip(),
@@ -175,7 +219,12 @@ class GeminiVisionClient:
                     "vintage": vintage,
                     "type": wine_type,
                     "grape_variety": str(result.get("grape_variety", "")).strip(),
+                    "disposition": disp,
                     "drink_by": str(result.get("drink_by", "")).strip(),
+                    "drink_window": str(result.get("drink_window", "")).strip(),
+                    "description": str(result.get("description", "")).strip(),
+                    "estimated_price": est_price,
+                    "ai_ratings": ai_ratings if ai_ratings else None,
                     "notes": str(result.get("notes", "")).strip(),
                     "rating": None,
                     "image_url": "",

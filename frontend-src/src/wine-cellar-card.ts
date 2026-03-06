@@ -32,6 +32,7 @@ export class WineCellarCard extends LitElement {
   @state() private _loading = true;
   @state() private _showRackSettings = false;
   @state() private _copiedWine: Wine | null = null;
+  @state() private _movingWine: Wine | null = null;
   @state() private _analyzing = false;
   @state() private _toast = "";
   @state() private _hasGemini = false;
@@ -337,6 +338,12 @@ export class WineCellarCard extends LitElement {
       return;
     }
 
+    // If we're moving a wine, place it here
+    if (this._movingWine) {
+      this._executeMoveWine(cabinet.id, row, col, "");
+      return;
+    }
+
     if (wine) {
       this._selectedWine = wine;
       this._showDetail = true;
@@ -348,12 +355,39 @@ export class WineCellarCard extends LitElement {
 
   private _onZoneClick(e: CustomEvent) {
     const { wine, cabinet, zone } = e.detail;
+
+    // If we're moving a wine, place it in this zone
+    if (this._movingWine && !wine) {
+      this._executeMoveWine(cabinet.id, null, null, zone || "bottom");
+      return;
+    }
+
     if (wine) {
       this._selectedWine = wine;
       this._showDetail = true;
     } else {
       this._addPreselect = { cabinet: cabinet.id, row: null, col: null, zone: zone || "bottom" };
       this._showAddDialog = true;
+    }
+  }
+
+  private async _executeMoveWine(cabinetId: string, row: number | null, col: number | null, zone: string) {
+    if (!this._movingWine) return;
+    try {
+      await this.hass.callWS({
+        type: "wine_cellar/move_wine",
+        wine_id: this._movingWine.id,
+        cabinet_id: cabinetId,
+        row,
+        col,
+        zone,
+      });
+      this._showToast(`Moved "${this._movingWine.name}"`);
+      this._movingWine = null;
+      await this._loadData();
+    } catch (err) {
+      console.error("Failed to move wine:", err);
+      this._showToast("Failed to move wine");
     }
   }
 
@@ -552,6 +586,16 @@ export class WineCellarCard extends LitElement {
             `
           : nothing}
 
+        <!-- Move mode banner -->
+        ${this._movingWine
+          ? html`
+              <div class="copy-banner">
+                <span>📦 Moving "${this._movingWine.name}" — tap a cell to place it</span>
+                <button @click=${() => (this._movingWine = null)}>✕ Cancel</button>
+              </div>
+            `
+          : nothing}
+
         <!-- Stats bar -->
         ${this._stats
           ? html`
@@ -617,6 +661,10 @@ export class WineCellarCard extends LitElement {
                           @cell-click=${this._onCellClick}
                           @zone-click=${this._onZoneClick}
                           @wine-drop=${this._onWineDrop}
+                          @wine-longpress=${(e: CustomEvent) => {
+                            this._movingWine = e.detail.wine;
+                            this._showToast(`Tap a cell to move "${e.detail.wine.name}"`);
+                          }}
                         ></cabinet-grid>
                       `
                     )
@@ -727,8 +775,8 @@ export class WineCellarCard extends LitElement {
           @copy-wine=${(e: CustomEvent) => this._copyWine(e.detail.wine)}
           @move-wine=${(e: CustomEvent) => {
             this._showDetail = false;
-            this._addPreselect = { cabinet: "", row: null, col: null, zone: "" };
-            // TODO: implement move flow
+            this._movingWine = e.detail.wine;
+            this._showToast(`Tap a cell to move "${e.detail.wine.name}"`);
           }}
         ></wine-detail-dialog>
 

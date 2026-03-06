@@ -15,6 +15,57 @@ from .const import DOMAIN
 _LOGGER = logging.getLogger(__name__)
 
 
+async def _auto_enrich_wine(hass: HomeAssistant, wine: dict[str, Any]) -> None:
+    """Background task: enrich a newly added wine with Vivino data."""
+    try:
+        vivino = hass.data[DOMAIN].get("vivino")
+        if not vivino:
+            return
+        parts = []
+        if wine.get("winery"):
+            parts.append(wine["winery"])
+        if wine.get("name"):
+            parts.append(wine["name"])
+        if wine.get("vintage"):
+            parts.append(str(wine["vintage"]))
+        query = " ".join(parts) if parts else ""
+        if not query:
+            return
+
+        result = await vivino.search_wine(query)
+        if not result:
+            return
+
+        lookup = result[0]
+        storage = hass.data[DOMAIN]["storage"]
+        updates: dict[str, Any] = {}
+
+        # Enrichment fields from Vivino
+        for key in ("rating", "ratings_count", "image_url", "description",
+                    "food_pairings", "alcohol", "grape_variety"):
+            val = lookup.get(key)
+            if val and not wine.get(key):
+                updates[key] = val
+
+        # Vivino price as retail_price
+        if lookup.get("price"):
+            updates["retail_price"] = lookup["price"]
+
+        # Fill empty fields
+        for key in ("region", "country", "type"):
+            val = lookup.get(key)
+            if val and not wine.get(key):
+                updates[key] = val
+
+        if updates:
+            _LOGGER.debug("Auto-enrich wine %s: %s", wine.get("id"), list(updates.keys()))
+            storage.update_wine(wine["id"], updates)
+            await storage.async_save()
+            hass.bus.async_fire(f"{DOMAIN}_updated")
+    except Exception as err:
+        _LOGGER.warning("Auto-enrich failed for wine %s: %s", wine.get("id"), err)
+
+
 def async_register_websocket_commands(hass: HomeAssistant) -> None:
     """Register WebSocket commands."""
     websocket_api.async_register_command(hass, ws_get_wines)
@@ -72,12 +123,15 @@ async def ws_add_wine(
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Add a new wine."""
+    """Add a new wine, then auto-enrich with Vivino data."""
     storage = hass.data[DOMAIN]["storage"]
     wine = storage.add_wine(msg["wine"])
     await storage.async_save()
     hass.bus.async_fire(f"{DOMAIN}_updated")
     connection.send_result(msg["id"], {"wine": wine})
+
+    # Auto-enrich: run Vivino lookup in background after adding
+    hass.async_create_task(_auto_enrich_wine(hass, wine))
 
 
 @websocket_api.websocket_command(

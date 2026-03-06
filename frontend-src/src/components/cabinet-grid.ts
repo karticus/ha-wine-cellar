@@ -395,6 +395,35 @@ export class CabinetGrid extends LitElement {
     return brightMap[hex] || hex;
   }
 
+  // --- Long press (mobile move) ---
+
+  private _longPressTimer: number | null = null;
+
+  private _onTouchStart(wine: Wine) {
+    this._longPressTimer = window.setTimeout(() => {
+      this._longPressTimer = null;
+      this.dispatchEvent(new CustomEvent("wine-longpress", {
+        detail: { wine, cabinet: this.cabinet },
+        bubbles: true,
+        composed: true,
+      }));
+    }, 500);
+  }
+
+  private _onTouchEnd() {
+    if (this._longPressTimer !== null) {
+      clearTimeout(this._longPressTimer);
+      this._longPressTimer = null;
+    }
+  }
+
+  private _onTouchMove() {
+    if (this._longPressTimer !== null) {
+      clearTimeout(this._longPressTimer);
+      this._longPressTimer = null;
+    }
+  }
+
   // --- Drag and drop ---
 
   private _onDragStart(e: DragEvent, wine: Wine, row?: number, col?: number, zone?: string) {
@@ -504,6 +533,9 @@ export class CabinetGrid extends LitElement {
               style=${wine ? `background: ${bgColor}; --bottle-type-color: ${ringColor}` : ""}
               draggable=${wine ? "true" : "false"}
               @click=${() => this._onCellClick(row, col, wine)}
+              @touchstart=${wine ? () => this._onTouchStart(wine) : nothing}
+              @touchend=${wine ? () => this._onTouchEnd() : nothing}
+              @touchmove=${wine ? () => this._onTouchMove() : nothing}
               @dragstart=${wine ? (e: DragEvent) => this._onDragStart(e, wine, row, col) : nothing}
               @dragend=${wine ? (e: DragEvent) => this._onDragEnd(e) : nothing}
               @dragover=${(e: DragEvent) => this._onDragOver(e, cellKey)}
