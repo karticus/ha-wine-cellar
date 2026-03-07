@@ -1361,6 +1361,7 @@ export class WineCellarCard extends LitElement {
           .open=${this._showWineList}
           .hass=${this.hass}
           .hasGemini=${this._hasGemini}
+          .cellarWines=${this._wines}
           @close=${() => (this._showWineList = false)}
           @wine-added=${this._onWineAdded}
           @buy-list-updated=${() => this._loadData()}

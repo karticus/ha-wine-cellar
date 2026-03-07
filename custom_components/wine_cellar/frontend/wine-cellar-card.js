@@ -5570,6 +5570,7 @@ let WineListDialog = class WineListDialog extends i {
     constructor() {
         super(...arguments);
         this.open = false;
+        this.cellarWines = [];
         this._phase = "capture";
         this._wines = [];
         this._restaurantName = null;
@@ -5822,6 +5823,22 @@ let WineListDialog = class WineListDialog extends i {
         };
         this._showDetail = true;
     }
+    _findCellarMatch(wine) {
+        if (!this.cellarWines?.length)
+            return null;
+        const wName = (wine.name || "").toLowerCase().trim();
+        const wWinery = (wine.winery || "").toLowerCase().trim();
+        const wVintage = wine.vintage;
+        return this.cellarWines.find((c) => {
+            const cName = (c.name || "").toLowerCase().trim();
+            const cWinery = (c.winery || "").toLowerCase().trim();
+            // Match by name + winery (both must partially match)
+            const nameMatch = cName.includes(wName) || wName.includes(cName);
+            const wineryMatch = !wWinery || !cWinery || cWinery.includes(wWinery) || wWinery.includes(cWinery);
+            const vintageMatch = !wVintage || !c.vintage || wVintage === c.vintage;
+            return nameMatch && wineryMatch && vintageMatch;
+        }) || null;
+    }
     _renderWineItem(wine) {
         const typeColor = WINE_TYPE_COLORS[wine.type] || WINE_TYPE_COLORS.red;
         const expanded = this._expandedIndex === wine.index;
@@ -5829,6 +5846,7 @@ let WineListDialog = class WineListDialog extends i {
         const marketPrice = wine.vivino_price || wine.ai_estimated_price;
         const markup = this._calcMarkup(wine.list_price, marketPrice);
         const valueBadge = this._getValueBadge(wine);
+        const cellarMatch = this._findCellarMatch(wine);
         return b `
       <div
         class="wine-list-item ${expanded ? "expanded" : ""}"
@@ -5839,13 +5857,16 @@ let WineListDialog = class WineListDialog extends i {
             ? b `<img class="wl-thumb" src="${wine.vivino_image_url}" alt="" />`
             : A}
         <div class="wl-info">
-          <div class="wl-name">${wine.winery ? `${wine.winery} ` : ""}${wine.name}</div>
+          <div class="wl-name">
+            ${wine.winery ? `${wine.winery} ` : ""}${wine.name}
+            ${cellarMatch ? b `<span class="wl-cellar-badge">IN CELLAR</span>` : A}
+          </div>
           <div class="wl-meta">
             ${wine.vintage || "NV"} ${wine.region ? `\u2022 ${wine.region}` : ""}
             ${wine.grape_variety ? `\u2022 ${wine.grape_variety}` : ""}
           </div>
 
-          <!-- Prices -->
+          <!-- Prices + Scores combined row -->
           <div class="wl-price-row">
             ${wine.list_price !== null
             ? b `<span class="wl-list-price">${this._formatPrice(wine.list_price, this._currency)}</span>`
@@ -5859,10 +5880,6 @@ let WineListDialog = class WineListDialog extends i {
             ${valueBadge
             ? b `<span class="wl-value-badge" style="background:${valueBadge.color}">${valueBadge.label}</span>`
             : A}
-          </div>
-
-          <!-- Scores row -->
-          <div class="wl-scores">
             ${wine.vivino_status === "loading"
             ? b `<span class="wl-loading-dot"></span>`
             : wine.vivino_rating
@@ -5871,17 +5888,22 @@ let WineListDialog = class WineListDialog extends i {
             ${wine.ai_status === "loading"
             ? b `<span class="wl-loading-dot"></span>`
             : A}
-            ${wine.ai_ratings
-            ? b `
-                  <div class="wl-ai-chips">
-                    ${wine.ai_ratings.rating_ws ? b `<span class="wl-ai-chip">WS ${wine.ai_ratings.rating_ws}</span>` : A}
-                    ${wine.ai_ratings.rating_rp ? b `<span class="wl-ai-chip">RP ${wine.ai_ratings.rating_rp}</span>` : A}
-                    ${wine.ai_ratings.rating_jd ? b `<span class="wl-ai-chip">JD ${wine.ai_ratings.rating_jd}</span>` : A}
-                    ${wine.ai_ratings.rating_ag ? b `<span class="wl-ai-chip">AG ${wine.ai_ratings.rating_ag}</span>` : A}
-                  </div>
-                `
+            ${cellarMatch?.user_rating
+            ? b `<span class="wl-user-score">\uD83C\uDF77 ${cellarMatch.user_rating}/100</span>`
             : A}
           </div>
+
+          <!-- AI Critic chips -->
+          ${wine.ai_ratings
+            ? b `
+                <div class="wl-ai-chips">
+                  ${wine.ai_ratings.rating_ws ? b `<span class="wl-ai-chip">WS ${wine.ai_ratings.rating_ws}</span>` : A}
+                  ${wine.ai_ratings.rating_rp ? b `<span class="wl-ai-chip">RP ${wine.ai_ratings.rating_rp}</span>` : A}
+                  ${wine.ai_ratings.rating_jd ? b `<span class="wl-ai-chip">JD ${wine.ai_ratings.rating_jd}</span>` : A}
+                  ${wine.ai_ratings.rating_ag ? b `<span class="wl-ai-chip">AG ${wine.ai_ratings.rating_ag}</span>` : A}
+                </div>
+              `
+            : A}
 
           <!-- Expanded details -->
           ${expanded
@@ -6144,11 +6166,11 @@ WineListDialog.styles = [
       .wine-list-item {
         display: flex;
         align-items: flex-start;
-        gap: 10px;
-        padding: 10px 12px;
+        gap: 8px;
+        padding: 6px 10px;
         border: 1px solid var(--wc-border);
-        border-radius: 10px;
-        margin-bottom: 8px;
+        border-radius: 8px;
+        margin-bottom: 4px;
         transition: background 0.2s;
         cursor: pointer;
       }
@@ -6162,17 +6184,17 @@ WineListDialog.styles = [
       }
 
       .wl-type-dot {
-        width: 10px;
-        height: 10px;
+        width: 8px;
+        height: 8px;
         border-radius: 50%;
         flex-shrink: 0;
         margin-top: 5px;
       }
 
       .wl-thumb {
-        width: 28px;
-        height: 40px;
-        border-radius: 4px;
+        width: 22px;
+        height: 32px;
+        border-radius: 3px;
         object-fit: cover;
         flex-shrink: 0;
       }
@@ -6184,45 +6206,56 @@ WineListDialog.styles = [
 
       .wl-name {
         font-weight: 600;
-        font-size: 0.88em;
+        font-size: 0.82em;
         color: var(--wc-text);
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
       }
 
+      .wl-cellar-badge {
+        font-size: 0.65em;
+        font-weight: 700;
+        padding: 1px 4px;
+        border-radius: 4px;
+        background: rgba(46, 125, 50, 0.2);
+        border: 1px solid rgba(46, 125, 50, 0.4);
+        color: #4caf50;
+        margin-left: 4px;
+        vertical-align: middle;
+      }
+
       .wl-meta {
-        font-size: 0.78em;
+        font-size: 0.72em;
         color: var(--wc-text-secondary);
-        margin-top: 1px;
+        margin-top: 0;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
       }
 
-      .wl-scores {
-        display: flex;
-        gap: 6px;
-        align-items: center;
-        margin-top: 4px;
-        flex-wrap: wrap;
-      }
-
       .wl-vivino-rating {
-        display: flex;
+        display: inline-flex;
         align-items: center;
         gap: 2px;
-        font-size: 0.82em;
+        font-size: 0.78em;
         font-weight: 600;
         color: #f5a623;
       }
 
+      .wl-user-score {
+        font-size: 0.78em;
+        font-weight: 600;
+        color: #4caf50;
+      }
+
       .wl-price-row {
         display: flex;
-        gap: 8px;
+        gap: 6px;
         align-items: center;
-        margin-top: 3px;
-        font-size: 0.82em;
+        margin-top: 2px;
+        font-size: 0.78em;
+        flex-wrap: wrap;
       }
 
       .wl-list-price {
@@ -6236,32 +6269,32 @@ WineListDialog.styles = [
       }
 
       .wl-markup-badge {
-        font-size: 0.72em;
+        font-size: 0.68em;
         font-weight: 600;
-        padding: 1px 6px;
-        border-radius: 8px;
+        padding: 1px 5px;
+        border-radius: 6px;
         color: #fff;
       }
 
       .wl-value-badge {
-        font-size: 0.7em;
+        font-size: 0.66em;
         font-weight: 500;
-        padding: 1px 6px;
-        border-radius: 8px;
+        padding: 1px 5px;
+        border-radius: 6px;
         color: #fff;
       }
 
       .wl-ai-chips {
         display: flex;
-        gap: 4px;
+        gap: 3px;
         flex-wrap: wrap;
-        margin-top: 4px;
+        margin-top: 2px;
       }
 
       .wl-ai-chip {
-        font-size: 0.7em;
-        padding: 2px 6px;
-        border-radius: 10px;
+        font-size: 0.65em;
+        padding: 1px 4px;
+        border-radius: 8px;
         background: rgba(245, 166, 35, 0.12);
         border: 1px solid rgba(245, 166, 35, 0.3);
         color: #f5a623;
@@ -6269,16 +6302,16 @@ WineListDialog.styles = [
       }
 
       .wl-expanded-detail {
-        margin-top: 8px;
-        padding-top: 8px;
+        margin-top: 4px;
+        padding-top: 4px;
         border-top: 1px solid var(--wc-border);
-        font-size: 0.82em;
+        font-size: 0.75em;
         color: var(--wc-text-secondary);
-        line-height: 1.4;
+        line-height: 1.3;
       }
 
       .wl-detail-row {
-        margin-bottom: 4px;
+        margin-bottom: 2px;
       }
 
       .wl-detail-label {
@@ -6305,9 +6338,9 @@ WineListDialog.styles = [
         background: #2e7d32;
         color: #fff;
         border: none;
-        border-radius: 6px;
-        font-size: 0.75em;
-        padding: 4px 8px;
+        border-radius: 5px;
+        font-size: 0.7em;
+        padding: 3px 6px;
         cursor: pointer;
         white-space: nowrap;
       }
@@ -6323,12 +6356,12 @@ WineListDialog.styles = [
         background: #e65100;
         color: #fff;
         border: none;
-        border-radius: 6px;
-        font-size: 0.75em;
-        padding: 4px 8px;
+        border-radius: 5px;
+        font-size: 0.7em;
+        padding: 3px 6px;
         cursor: pointer;
         white-space: nowrap;
-        margin-top: 4px;
+        margin-top: 2px;
       }
 
       .wl-buy-btn:hover { background: #bf360c; }
@@ -6365,6 +6398,9 @@ __decorate([
 __decorate([
     n({ attribute: false })
 ], WineListDialog.prototype, "hass", void 0);
+__decorate([
+    n({ attribute: false })
+], WineListDialog.prototype, "cellarWines", void 0);
 __decorate([
     r()
 ], WineListDialog.prototype, "_phase", void 0);
@@ -8588,6 +8624,7 @@ let WineCellarCard = class WineCellarCard extends i {
           .open=${this._showWineList}
           .hass=${this.hass}
           .hasGemini=${this._hasGemini}
+          .cellarWines=${this._wines}
           @close=${() => (this._showWineList = false)}
           @wine-added=${this._onWineAdded}
           @buy-list-updated=${() => this._loadData()}
