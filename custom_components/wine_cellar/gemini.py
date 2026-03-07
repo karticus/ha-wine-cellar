@@ -82,6 +82,7 @@ Return ONLY a JSON object with this structure:
       "grape_variety": "grape variety if mentioned or inferable",
       "list_price": 65.00,
       "list_price_currency": "USD",
+      "estimated_retail_price": 35.00,
       "glass_price": null,
       "bottle_size": "750ml"
     }
@@ -98,6 +99,7 @@ Rules:
 - "type" must be exactly one of: "red", "white", "rosé", "sparkling", "dessert"
 - "list_price" is the price as a number (e.g. 65.00). Use null only if truly unreadable.
 - "list_price_currency" should be the 3-letter currency code (USD, EUR, GBP, etc.)
+- "estimated_retail_price": estimated current US retail price for this wine as a number (e.g. 35.00). Use your knowledge of the wine market to estimate what this bottle currently sells for at a retail store. Use null only if truly unknown.
 - "glass_price" is the by-the-glass price if offered, otherwise null
 - "bottle_size" defaults to "750ml" unless the menu specifies otherwise
 - "currency" is the primary currency used on the document
@@ -386,6 +388,15 @@ class GeminiVisionClient:
                         except (ValueError, TypeError):
                             list_price = None
 
+                    estimated_retail = w.get("estimated_retail_price")
+                    if estimated_retail is not None:
+                        try:
+                            estimated_retail = round(float(estimated_retail), 2)
+                            if estimated_retail <= 0:
+                                estimated_retail = None
+                        except (ValueError, TypeError):
+                            estimated_retail = None
+
                     glass_price = w.get("glass_price")
                     if glass_price is not None:
                         try:
@@ -408,6 +419,7 @@ class GeminiVisionClient:
                         "list_price_currency": str(
                             w.get("list_price_currency", "USD")
                         ).strip().upper(),
+                        "estimated_retail_price": estimated_retail,
                         "glass_price": glass_price,
                         "bottle_size": str(w.get("bottle_size", "750ml")).strip(),
                     })

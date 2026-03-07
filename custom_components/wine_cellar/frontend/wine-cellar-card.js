@@ -5447,7 +5447,7 @@ let WineListDialog = class WineListDialog extends i {
                 ai_description: "",
                 ai_disposition: "",
                 ai_drink_window: "",
-                ai_estimated_price: null,
+                ai_estimated_price: w.estimated_retail_price || null,
                 vivino_status: "pending",
                 ai_status: "pending",
             }));

@@ -557,6 +557,18 @@ async def ws_refresh_wine(
     _LOGGER.debug("Vivino lookup price: %s", lookup.get("price"))
     if lookup.get("price"):
         updates["retail_price"] = lookup["price"]
+    elif not wine.get("retail_price"):
+        # Fallback: use Gemini AI to estimate retail price when Vivino has none
+        gemini = hass.data[DOMAIN].get("gemini")
+        if gemini:
+            try:
+                ai_result = await gemini.analyze_single_wine(wine)
+                ai_price = ai_result.get("estimated_price")
+                if ai_price:
+                    _LOGGER.debug("Using Gemini estimated price: %s", ai_price)
+                    updates["retail_price"] = ai_price
+            except Exception as err:
+                _LOGGER.debug("Gemini price fallback failed: %s", err)
 
     # Clear bad descriptions (Vivino error page text)
     cur_desc = wine.get("description", "")
@@ -807,6 +819,21 @@ async def ws_batch_refresh_vivino(
             # Vivino price as retail_price
             if lookup.get("price"):
                 updates["retail_price"] = lookup["price"]
+            elif not wine.get("retail_price"):
+                # Fallback: use Gemini AI to estimate retail price
+                gemini = hass.data[DOMAIN].get("gemini")
+                if gemini:
+                    try:
+                        ai_result = await gemini.analyze_single_wine(wine)
+                        ai_price = ai_result.get("estimated_price")
+                        if ai_price:
+                            _LOGGER.debug(
+                                "Batch: Gemini estimated price for %s: %s",
+                                wine.get("id"), ai_price,
+                            )
+                            updates["retail_price"] = ai_price
+                    except Exception as err:
+                        _LOGGER.debug("Batch: Gemini price fallback failed: %s", err)
 
             # Clear bad descriptions
             cur_desc = wine.get("description", "")
