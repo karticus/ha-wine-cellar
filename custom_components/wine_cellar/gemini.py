@@ -67,12 +67,12 @@ Wine analysis rules:
 - "notes": brief info from the label itself (appellation, classification, etc.)"""
 
 
-WINE_LIST_PROMPT = """You are a master sommelier. Analyze this photograph of a restaurant wine list, wine menu, store receipt, or purchase receipt. Extract EVERY wine listed on the page.
+WINE_LIST_PROMPT = """You are a master sommelier. The current year is {current_year}. Analyze this photograph of a restaurant wine list, wine menu, store receipt, or purchase receipt. Extract EVERY wine listed on the page, and provide expert analysis for each.
 
 Return ONLY a JSON object with this structure:
-{
+{{
   "wines": [
-    {
+    {{
       "name": "the wine name (grape/style/designation, NOT the winery)",
       "winery": "the producer/winery/domaine/chateau",
       "vintage": 2020,
@@ -84,14 +84,21 @@ Return ONLY a JSON object with this structure:
       "list_price_currency": "USD",
       "estimated_retail_price": 35.00,
       "glass_price": null,
-      "bottle_size": "750ml"
-    }
+      "bottle_size": "750ml",
+      "disposition": "D",
+      "drink_window": "2024-2028",
+      "description": "2-3 sentence tasting profile",
+      "rating_ws": null,
+      "rating_rp": null,
+      "rating_jd": null,
+      "rating_ag": null
+    }}
   ],
   "restaurant_name": "name if visible on the menu or receipt (store name, restaurant name, etc.)",
   "currency": "USD"
-}
+}}
 
-Rules:
+Extraction rules:
 - Extract ALL wines visible on the menu or receipt, including by-the-glass options
 - For receipts: extract wine items only (skip non-wine items like food, tax, tips, etc.)
 - "name" should include the wine name and style but NOT the winery/producer name
@@ -105,9 +112,20 @@ Rules:
 - "currency" is the primary currency used on the document
 - "restaurant_name" from any header/logo/store name visible, or null
 - For ambiguous types, infer from grape variety or region
-- If the image contains no wines at all, return {"error": "not_a_wine_list"}
+- If the image contains no wines at all, return {{"error": "not_a_wine_list"}}
 - Be thorough: do not skip any wines. If text is partially obscured, include what you can read.
-- Preserve the order wines appear on the document."""
+- Preserve the order wines appear on the document.
+
+Wine analysis rules (apply to every wine):
+- "disposition": "D" = Drink Now, "H" = Hold, "P" = Past Peak. Based on the wine's vintage, type, and quality level.
+- "drink_window": optimal drinking window as "YYYY-YYYY" range. Use aging guidelines:
+  - Everyday reds/whites (under $20): 1-3 years from vintage
+  - Quality reds ($20-50): 3-7 years from vintage
+  - Premium Bordeaux, Barolo, Napa Cab ($50+): 10-15 years
+  - Rosé: 1-2 years. Most whites: 1-3 years. Sparkling NV: 2-3 years.
+  - NV wines: "{current_year}-{next_year}"
+- "description": Professional 2-3 sentence tasting-style description of this wine's character
+- Rating fields (rating_ws, rating_rp, rating_jd, rating_ag): critic scores out of 100 if known. Use null if unknown. Do NOT fabricate."""
 
 
 class GeminiVisionClient:
@@ -303,11 +321,17 @@ class GeminiVisionClient:
             "Extracting wine list from image (%d chars base64)", len(image_base64)
         )
 
+        current_year = datetime.now().year
+        prompt = WINE_LIST_PROMPT.format(
+            current_year=current_year,
+            next_year=current_year + 1,
+        )
+
         body = {
             "contents": [
                 {
                     "parts": [
-                        {"text": WINE_LIST_PROMPT},
+                        {"text": prompt},
                         {
                             "inlineData": {
                                 "mimeType": "image/jpeg",
@@ -406,6 +430,25 @@ class GeminiVisionClient:
                         except (ValueError, TypeError):
                             glass_price = None
 
+                    # AI analysis fields
+                    disposition = str(w.get("disposition", "")).strip().upper()
+                    if disposition not in ("D", "H", "P"):
+                        disposition = ""
+                    drink_window = str(w.get("drink_window", "")).strip()
+                    description = str(w.get("description", "")).strip()
+
+                    # Validate critic ratings (50-100 range)
+                    ai_ratings: dict[str, int] = {}
+                    for rkey in ("rating_ws", "rating_rp", "rating_jd", "rating_ag"):
+                        rval = w.get(rkey)
+                        if rval is not None:
+                            try:
+                                rval = int(rval)
+                                if 50 <= rval <= 100:
+                                    ai_ratings[rkey] = rval
+                            except (ValueError, TypeError):
+                                pass
+
                     validated.append({
                         "index": i,
                         "name": name,
@@ -422,13 +465,22 @@ class GeminiVisionClient:
                         "estimated_retail_price": estimated_retail,
                         "glass_price": glass_price,
                         "bottle_size": str(w.get("bottle_size", "750ml")).strip(),
+                        "disposition": disposition,
+                        "drink_window": drink_window,
+                        "description": description,
+                        "ai_ratings": ai_ratings if ai_ratings else None,
                     })
+
+                raw_name = str(
+                    result.get("restaurant_name", "")
+                ).strip()
+                # Gemini sometimes returns literal "None" or "null"
+                if raw_name.lower() in ("none", "null", "n/a", ""):
+                    raw_name = None  # type: ignore[assignment]
 
                 return {
                     "wines": validated,
-                    "restaurant_name": str(
-                        result.get("restaurant_name", "")
-                    ).strip() or None,
+                    "restaurant_name": raw_name or None,
                     "currency": str(
                         result.get("currency", "USD")
                     ).strip().upper(),

@@ -5386,7 +5386,7 @@ let WineListDialog = class WineListDialog extends i {
         this._currency = "USD";
         this._error = "";
         this._enriching = false;
-        this._aiEnriching = false;
+        // _aiEnriching removed — AI analysis now included in extraction call
         this._expandedIndex = null;
         this._addedIndices = new Set();
         this._cancelEnrichment = false;
@@ -5404,7 +5404,6 @@ let WineListDialog = class WineListDialog extends i {
             this._currency = "USD";
             this._error = "";
             this._enriching = false;
-            this._aiEnriching = false;
             this._expandedIndex = null;
             this._addedIndices = new Set();
             this._buyListIndices = new Set();
@@ -5443,20 +5442,18 @@ let WineListDialog = class WineListDialog extends i {
                 vivino_ratings_count: null,
                 vivino_price: null,
                 vivino_image_url: "",
-                ai_ratings: null,
-                ai_description: "",
-                ai_disposition: "",
-                ai_drink_window: "",
+                ai_ratings: w.ai_ratings || null,
+                ai_description: w.description || "",
+                ai_disposition: w.disposition || "",
+                ai_drink_window: w.drink_window || "",
                 ai_estimated_price: w.estimated_retail_price || null,
                 vivino_status: "pending",
-                ai_status: "pending",
+                ai_status: (w.ai_ratings || w.disposition || w.description) ? "done" : "skipped",
             }));
             this._wines = [...this._wines, ...newWines];
             this._restaurantName = data.restaurant_name || this._restaurantName;
             this._currency = data.currency || "USD";
             this._phase = "results";
-            // Auto-start Vivino enrichment for new wines
-            this._startVivinoEnrichment();
         }
         catch (err) {
             this._error = `Extraction failed: ${err?.message || err}`;
@@ -5500,54 +5497,9 @@ let WineListDialog = class WineListDialog extends i {
         }
         this._enriching = false;
     }
-    async _startAIEnrichment() {
-        this._aiEnriching = true;
-        this._cancelEnrichment = false;
-        for (const wine of this._wines) {
-            if (this._cancelEnrichment)
-                break;
-            if (wine.ai_status !== "pending")
-                continue;
-            wine.ai_status = "loading";
-            this._wines = [...this._wines];
-            try {
-                const resp = await this.hass.callWS({
-                    type: "wine_cellar/analyze_wine_transient",
-                    wine: {
-                        name: wine.name,
-                        winery: wine.winery,
-                        vintage: wine.vintage,
-                        type: wine.type,
-                        region: wine.region,
-                        country: wine.country,
-                        grape_variety: wine.grape_variety,
-                    },
-                });
-                if (resp.result) {
-                    const r = resp.result;
-                    const ratings = {};
-                    for (const key of ["rating_ws", "rating_rp", "rating_jd", "rating_ag"]) {
-                        const val = r[key];
-                        if (val && typeof val === "number" && val >= 50 && val <= 100) {
-                            ratings[key] = val;
-                        }
-                    }
-                    wine.ai_ratings = Object.keys(ratings).length ? ratings : null;
-                    wine.ai_description = r.description || "";
-                    wine.ai_disposition = r.disposition || "";
-                    wine.ai_drink_window = r.drink_window || "";
-                    wine.ai_estimated_price = r.estimated_price || null;
-                }
-                wine.ai_status = "done";
-            }
-            catch {
-                wine.ai_status = "error";
-            }
-            this._wines = [...this._wines];
-            await new Promise((r) => setTimeout(r, 500));
-        }
-        this._aiEnriching = false;
-    }
+    // AI enrichment is now included in the Gemini extraction call
+    // (disposition, ratings, description, drink_window are returned per wine)
+    // The _startAIEnrichment method is no longer needed.
     async _addToCellar(wine) {
         try {
             await this.hass.callWS({
@@ -5788,7 +5740,6 @@ let WineListDialog = class WineListDialog extends i {
         if (!this.open)
             return A;
         const vivinoDone = this._wines.filter((w) => w.vivino_status === "done" || w.vivino_status === "error").length;
-        const aiDone = this._wines.filter((w) => w.ai_status === "done" || w.ai_status === "error").length;
         const total = this._wines.length;
         return b `
       <div class="dialog-overlay" @click=${this._close}>
@@ -5832,7 +5783,7 @@ let WineListDialog = class WineListDialog extends i {
                 <div class="extracting">
                   <div class="spinner"></div>
                   <div>Analyzing list...</div>
-                  <div style="font-size:0.85em">Gemini is reading the image</div>
+                  <div style="font-size:0.85em">Gemini is reading wines and scoring them</div>
                 </div>
               `
             : A}
@@ -5859,34 +5810,19 @@ let WineListDialog = class WineListDialog extends i {
                     `
                 : A}
 
-                <!-- AI enrichment progress -->
-                ${this._aiEnriching
-                ? b `
-                      <div class="enrichment-bar">
-                        <span>\uD83E\uDD16 AI ${aiDone}/${total}</span>
-                        <div class="progress-track">
-                          <div
-                            class="progress-fill ai"
-                            style="width: ${total ? (aiDone / total) * 100 : 0}%"
-                          ></div>
-                        </div>
-                      </div>
-                    `
-                : A}
-
                 <div class="wine-list-results">
                   ${this._wines.map((w) => this._renderWineItem(w))}
                 </div>
 
                 <div class="footer-actions">
-                  ${!this._aiEnriching && this._wines.some((w) => w.ai_status === "pending")
+                  ${!this._enriching && this._wines.some((w) => w.vivino_status === "pending")
                 ? b `
                         <button
                           class="btn btn-primary"
-                          style="background:#1565c0"
-                          @click=${this._startAIEnrichment}
+                          style="background:#8e24aa"
+                          @click=${this._startVivinoEnrichment}
                         >
-                          \uD83E\uDD16 Get AI Scores
+                          \uD83C\uDF47 Get Vivino Scores
                         </button>
                       `
                 : A}
@@ -6257,9 +6193,6 @@ __decorate([
 __decorate([
     r()
 ], WineListDialog.prototype, "_enriching", void 0);
-__decorate([
-    r()
-], WineListDialog.prototype, "_aiEnriching", void 0);
 __decorate([
     r()
 ], WineListDialog.prototype, "_expandedIndex", void 0);
