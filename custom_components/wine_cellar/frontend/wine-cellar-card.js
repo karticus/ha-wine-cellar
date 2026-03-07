@@ -6460,6 +6460,8 @@ let InventoryDialog = class InventoryDialog extends i {
         this._statusMsg = "";
         this._syncing = false;
         this._confirmSyncLoad = false;
+        // ── Cloud Sync (Google Drive / file system) ──────────────────
+        this._syncSaveLabel = "";
     }
     updated(changedProps) {
         if (changedProps.has("open") && this.open) {
@@ -6807,21 +6809,25 @@ let InventoryDialog = class InventoryDialog extends i {
         this._restoring = false;
         this._restoreData = null;
     }
-    // ── Cloud Sync (Google Drive / file system) ──────────────────
     async _syncSave() {
         this._syncing = true;
+        this._syncSaveLabel = "Saving…";
         this._statusMsg = "";
         try {
             const result = await this.hass.callWS({ type: "wine_cellar/sync_save" });
-            if (result.error) {
+            if (result && result.error) {
                 this._statusMsg = `Sync save failed: ${result.error}`;
+                this._syncSaveLabel = "";
             }
             else {
-                this._statusMsg = `☁️ Saved to server — ${result.wines} wines, ${result.cabinets} racks. Sync this file with Google Drive: ${result.path}`;
+                this._statusMsg = `☁️ Saved — ${result?.wines ?? "?"} wines, ${result?.cabinets ?? "?"} racks`;
+                this._syncSaveLabel = "Saved!";
+                setTimeout(() => { this._syncSaveLabel = ""; }, 2000);
             }
         }
         catch (err) {
             this._statusMsg = `Sync save failed: ${err.message || err}`;
+            this._syncSaveLabel = "";
         }
         this._syncing = false;
     }
@@ -7044,7 +7050,7 @@ let InventoryDialog = class InventoryDialog extends i {
                 ?disabled=${busy}
                 title="Save backup to HA server for Google Drive sync"
               >
-                ${this._syncing ? "Syncing…" : "☁️ Sync Save"}
+                ${this._syncSaveLabel || "☁️ Sync Save"}
               </button>
               <button
                 class="inv-btn"
@@ -7497,7 +7503,7 @@ InventoryDialog.styles = [
       }
 
       .inv-confirm-box {
-        background: var(--wc-card-bg, #fff);
+        background: var(--wc-bg);
         border-radius: 12px;
         padding: 24px;
         max-width: 380px;
@@ -7634,6 +7640,9 @@ __decorate([
 __decorate([
     r()
 ], InventoryDialog.prototype, "_confirmSyncLoad", void 0);
+__decorate([
+    r()
+], InventoryDialog.prototype, "_syncSaveLabel", void 0);
 InventoryDialog = __decorate([
     t("inventory-dialog")
 ], InventoryDialog);

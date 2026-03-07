@@ -348,7 +348,7 @@ export class InventoryDialog extends LitElement {
       }
 
       .inv-confirm-box {
-        background: var(--wc-card-bg, #fff);
+        background: var(--wc-bg);
         border-radius: 12px;
         padding: 24px;
         max-width: 380px;
@@ -816,18 +816,25 @@ export class InventoryDialog extends LitElement {
 
   // ── Cloud Sync (Google Drive / file system) ──────────────────
 
+  @state() private _syncSaveLabel = "";
+
   private async _syncSave() {
     this._syncing = true;
+    this._syncSaveLabel = "Saving…";
     this._statusMsg = "";
     try {
       const result = await this.hass.callWS({ type: "wine_cellar/sync_save" });
-      if (result.error) {
+      if (result && result.error) {
         this._statusMsg = `Sync save failed: ${result.error}`;
+        this._syncSaveLabel = "";
       } else {
-        this._statusMsg = `☁️ Saved to server — ${result.wines} wines, ${result.cabinets} racks. Sync this file with Google Drive: ${result.path}`;
+        this._statusMsg = `☁️ Saved — ${result?.wines ?? "?"} wines, ${result?.cabinets ?? "?"} racks`;
+        this._syncSaveLabel = "Saved!";
+        setTimeout(() => { this._syncSaveLabel = ""; }, 2000);
       }
     } catch (err: any) {
       this._statusMsg = `Sync save failed: ${err.message || err}`;
+      this._syncSaveLabel = "";
     }
     this._syncing = false;
   }
@@ -1064,7 +1071,7 @@ export class InventoryDialog extends LitElement {
                 ?disabled=${busy}
                 title="Save backup to HA server for Google Drive sync"
               >
-                ${this._syncing ? "Syncing…" : "☁️ Sync Save"}
+                ${this._syncSaveLabel || "☁️ Sync Save"}
               </button>
               <button
                 class="inv-btn"
