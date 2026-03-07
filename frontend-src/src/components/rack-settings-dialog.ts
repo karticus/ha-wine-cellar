@@ -763,12 +763,15 @@ export class RackSettingsDialog extends LitElement {
             (cab, idx) => {
               const storageCount = (cab.storage_rows || []).length;
               const gridRows = cab.rows - storageCount;
+              const isH = cab.orientation === "horizontal";
+              const dispRows = isH ? cab.cols : gridRows;
+              const dispCols = isH ? gridRows : cab.cols;
               return html`
                 <div class="rack-item">
                   <div class="rack-info">
-                    <div class="rack-name">${cab.name}${cab.orientation === "horizontal" ? " ↔" : ""}</div>
+                    <div class="rack-name">${cab.name}${isH ? " ↔" : ""}</div>
                     <div class="rack-meta">
-                      ${gridRows} × ${cab.cols} grid${(cab.depth || 1) > 1 ? ` × ${cab.depth} deep` : ""}
+                      ${dispRows} × ${dispCols} grid${(cab.depth || 1) > 1 ? ` × ${cab.depth} deep` : ""}
                       · ${this._winesInCabinet(cab.id)} bottles
                       ${storageCount > 0 ? ` · ${storageCount} storage` : ""}
                     </div>
