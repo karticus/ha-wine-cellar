@@ -2904,6 +2904,23 @@ let AddWineDialog = class AddWineDialog extends i {
         }
         this._loading = false;
     }
+    async _quickAddToBuyList() {
+        if (!this._wineData.name)
+            return;
+        this._loading = true;
+        try {
+            await this.hass.callWS({
+                type: "wine_cellar/add_to_buy_list",
+                wine: this._wineData,
+            });
+            this.dispatchEvent(new CustomEvent("buy-list-updated", { bubbles: true, composed: true }));
+            this._close();
+        }
+        catch (err) {
+            this._error = "Failed to add to buy list.";
+        }
+        this._loading = false;
+    }
     _renderStepIndicator() {
         const currentIdx = this._steps.indexOf(this._step);
         return b `
@@ -3189,6 +3206,19 @@ let AddWineDialog = class AddWineDialog extends i {
         <button class="btn btn-outline" @click=${() => this._goToStep("scan")}>
           ← Back
         </button>
+        ${!this.buyListMode
+            ? b `
+              <button
+                class="btn btn-primary"
+                style="background: #e65100;"
+                @click=${this._quickAddToBuyList}
+                ?disabled=${!this._wineData.name || this._loading}
+                title="Save to buy list instead of cellar"
+              >
+                ${this._loading ? b `<span class="loading-spinner"></span>` : "🛒 Buy List"}
+              </button>
+            `
+            : A}
         <button
           class="btn btn-primary"
           @click=${() => this._goToStep(this.buyListMode ? "confirm" : "location")}
