@@ -67,6 +67,46 @@ Wine analysis rules:
 - "notes": brief info from the label itself (appellation, classification, etc.)"""
 
 
+WINE_LIST_PROMPT = """You are a master sommelier. Analyze this photograph of a restaurant wine list or wine menu. Extract EVERY wine listed on the page.
+
+Return ONLY a JSON object with this structure:
+{{
+  "wines": [
+    {{
+      "name": "the wine name (grape/style/designation, NOT the winery)",
+      "winery": "the producer/winery/domaine/chateau",
+      "vintage": 2020,
+      "type": "red",
+      "region": "the wine region if mentioned or inferable",
+      "country": "the country if mentioned or inferable",
+      "grape_variety": "grape variety if mentioned or inferable",
+      "list_price": 65.00,
+      "list_price_currency": "USD",
+      "glass_price": null,
+      "bottle_size": "750ml"
+    }}
+  ],
+  "restaurant_name": "name if visible on the menu",
+  "currency": "USD"
+}}
+
+Rules:
+- Extract ALL wines visible on the menu, including by-the-glass options
+- "name" should include the wine name and style but NOT the winery/producer name
+- "vintage" must be a 4-digit year as an integer, or null if NV or not shown
+- "type" must be exactly one of: "red", "white", "rosé", "sparkling", "dessert"
+- "list_price" is the restaurant price as a number (e.g. 65.00). Use null only if truly unreadable.
+- "list_price_currency" should be the 3-letter currency code (USD, EUR, GBP, etc.)
+- "glass_price" is the by-the-glass price if offered, otherwise null
+- "bottle_size" defaults to "750ml" unless the menu specifies otherwise
+- "currency" is the primary currency used on the menu
+- "restaurant_name" from any header/logo visible, or null
+- For ambiguous types, infer from grape variety or region
+- If the image is not a wine list, return {{"error": "not_a_wine_list"}}
+- Be thorough: do not skip any wines. If text is partially obscured, include what you can read.
+- Preserve the order wines appear on the menu."""
+
+
 class GeminiVisionClient:
     """Client for Google Gemini Vision API wine label recognition."""
 
@@ -244,6 +284,153 @@ class GeminiVisionClient:
             return {"error": "Gemini API timed out (45s)"}
         except Exception as err:
             _LOGGER.error("Gemini API error: %s", err)
+            return {"error": f"Unexpected error: {err}"}
+
+    async def extract_wine_list(self, image_base64: str) -> dict[str, Any]:
+        """Extract all wines from a restaurant wine list photo.
+
+        Returns {"wines": [...], "restaurant_name": ..., "currency": ...}
+        or {"error": "description"} on failure.
+        """
+        if not self._api_key:
+            return {"error": "Gemini API key is empty"}
+
+        session = async_get_clientsession(self._hass)
+        _LOGGER.debug(
+            "Extracting wine list from image (%d chars base64)", len(image_base64)
+        )
+
+        body = {
+            "contents": [
+                {
+                    "parts": [
+                        {"text": WINE_LIST_PROMPT},
+                        {
+                            "inlineData": {
+                                "mimeType": "image/jpeg",
+                                "data": image_base64,
+                            }
+                        },
+                    ]
+                }
+            ],
+            "generationConfig": {
+                "responseMimeType": "application/json",
+                "temperature": 0.1,
+            },
+        }
+
+        try:
+            timeout = aiohttp.ClientTimeout(total=60)
+            async with session.post(
+                GEMINI_API_URL,
+                params={"key": self._api_key},
+                json=body,
+                timeout=timeout,
+            ) as resp:
+                if resp.status in (401, 403):
+                    return {"error": f"Gemini API key is invalid (HTTP {resp.status})"}
+                if resp.status == 429:
+                    return {"error": "Gemini API quota exhausted"}
+                if resp.status != 200:
+                    return {"error": f"Gemini API error (HTTP {resp.status})"}
+
+                data = json.loads(await resp.text())
+                candidates = data.get("candidates", [])
+                if not candidates:
+                    return {"error": "Gemini returned no results"}
+
+                text = (
+                    candidates[0]
+                    .get("content", {})
+                    .get("parts", [{}])[0]
+                    .get("text", "")
+                )
+                result = json.loads(text)
+
+                if "error" in result:
+                    return {"error": f"Not a wine list: {result['error']}"}
+
+                raw_wines = result.get("wines", [])
+                if not raw_wines:
+                    return {"error": "No wines found in the image"}
+
+                valid_types = {"red", "white", "rosé", "sparkling", "dessert"}
+                validated = []
+
+                for i, w in enumerate(raw_wines):
+                    name = str(w.get("name", "")).strip()
+                    if not name:
+                        continue
+
+                    wine_type = w.get("type", "red")
+                    if wine_type not in valid_types:
+                        wine_type = "red"
+
+                    vintage = w.get("vintage")
+                    if vintage is not None:
+                        try:
+                            vintage = int(vintage)
+                            if vintage < 1900 or vintage > 2030:
+                                vintage = None
+                        except (ValueError, TypeError):
+                            vintage = None
+
+                    list_price = w.get("list_price")
+                    if list_price is not None:
+                        try:
+                            list_price = round(float(list_price), 2)
+                            if list_price <= 0:
+                                list_price = None
+                        except (ValueError, TypeError):
+                            list_price = None
+
+                    glass_price = w.get("glass_price")
+                    if glass_price is not None:
+                        try:
+                            glass_price = round(float(glass_price), 2)
+                            if glass_price <= 0:
+                                glass_price = None
+                        except (ValueError, TypeError):
+                            glass_price = None
+
+                    validated.append({
+                        "index": i,
+                        "name": name,
+                        "winery": str(w.get("winery", "")).strip(),
+                        "vintage": vintage,
+                        "type": wine_type,
+                        "region": str(w.get("region", "")).strip(),
+                        "country": str(w.get("country", "")).strip(),
+                        "grape_variety": str(w.get("grape_variety", "")).strip(),
+                        "list_price": list_price,
+                        "list_price_currency": str(
+                            w.get("list_price_currency", "USD")
+                        ).strip().upper(),
+                        "glass_price": glass_price,
+                        "bottle_size": str(w.get("bottle_size", "750ml")).strip(),
+                    })
+
+                return {
+                    "wines": validated,
+                    "restaurant_name": str(
+                        result.get("restaurant_name", "")
+                    ).strip() or None,
+                    "currency": str(
+                        result.get("currency", "USD")
+                    ).strip().upper(),
+                }
+
+        except json.JSONDecodeError as err:
+            _LOGGER.error("Failed to parse wine list response: %s", err)
+            return {"error": f"Failed to parse response: {err}"}
+        except aiohttp.ClientError as err:
+            _LOGGER.error("Network error extracting wine list: %s", err)
+            return {"error": f"Network error: {err}"}
+        except TimeoutError:
+            return {"error": "Gemini API timed out (60s)"}
+        except Exception as err:
+            _LOGGER.error("Wine list extraction error: %s", err)
             return {"error": f"Unexpected error: {err}"}
 
     async def analyze_single_wine(self, wine: dict[str, Any]) -> dict[str, Any]:

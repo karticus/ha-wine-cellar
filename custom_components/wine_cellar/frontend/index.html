@@ -66,7 +66,8 @@
       total_bottles: mockWines.length,
       total_capacity: 270,
       available_slots: 270 - mockWines.length,
-      total_value: mockWines.reduce((sum, w) => sum + (w.price || 0), 0),
+      total_value: mockWines.reduce((sum, w) => sum + (w.retail_price || w.price || 0), 0),
+      total_cost: mockWines.reduce((sum, w) => sum + (w.price || 0), 0),
       by_type: { red: 7, white: 3, "rosé": 1, sparkling: 1, dessert: 2 },
       by_cabinet: { "cabinet-1": 8, "cabinet-2": 5, "cabinet-3": 2 },
     };

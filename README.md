@@ -23,6 +23,7 @@ A custom Home Assistant integration for managing your wine collection. Track bot
 ### AI-Powered Wine Intelligence
 - **One-Scan Label Recognition** — Snap a photo of a wine label and Google Gemini identifies the wine and provides a full sommelier assessment in one call: name, winery, vintage, type, region, grape variety, disposition, drink window, tasting description, estimated price, and critic rating estimates (Wine Spectator, Robert Parker, James Dunnuck, Antonio Galloni)
 - **AI Batch Scan** — One-click full AI analysis on your entire cellar: disposition, drink windows, descriptions, pricing, and ratings for every bottle
+- **Restaurant Wine List Scanner** — Photograph a restaurant wine list and instantly see Vivino ratings, critic scores, market prices, and markup percentages for every wine on the menu. Highlights best-value picks and lets you add any wine to your cellar with one tap.
 - **Auto-Enrich on Add** — When you add a wine, Vivino data (rating, price, description, food pairings) is automatically fetched in the background
 
 ### Vivino Integration

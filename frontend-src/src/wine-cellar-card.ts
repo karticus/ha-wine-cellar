@@ -8,6 +8,7 @@ import "./components/wine-detail-dialog";
 import "./components/add-wine-dialog";
 import "./components/search-bar";
 import "./components/rack-settings-dialog";
+import "./components/wine-list-dialog";
 
 interface WineCellarCardConfig {
   type: string;
@@ -37,6 +38,7 @@ export class WineCellarCard extends LitElement {
   @state() private _batchVivino = false;
   @state() private _toast = "";
   @state() private _hasGemini = false;
+  @state() private _showWineList = false;
 
   static styles = [
     sharedStyles,
@@ -318,8 +320,10 @@ export class WineCellarCard extends LitElement {
         (w) =>
           w.name.toLowerCase().includes(q) ||
           w.winery.toLowerCase().includes(q) ||
-          w.region.toLowerCase().includes(q) ||
-          w.grape_variety.toLowerCase().includes(q)
+          (w.region || "").toLowerCase().includes(q) ||
+          (w.grape_variety || "").toLowerCase().includes(q) ||
+          (w.type || "").toLowerCase().includes(q) ||
+          (w.country || "").toLowerCase().includes(q)
       );
     }
 
@@ -581,7 +585,7 @@ export class WineCellarCard extends LitElement {
                 title="Full AI analysis on all wines (disposition, ratings, price, description)"
                 ?disabled=${this._analyzing || this._batchVivino}
               >
-                ${this._analyzing ? "AI Scanning..." : "🤖 AI Batch"}
+                ${this._analyzing ? "AI Scanning..." : "🤖 AI Batch Scan"}
               </button>
             ` : nothing}
             <button
@@ -591,8 +595,18 @@ export class WineCellarCard extends LitElement {
               title="Refresh all wines from Vivino (ratings, price, description)"
               ?disabled=${this._batchVivino || this._analyzing}
             >
-              ${this._batchVivino ? "Vivino Scanning..." : "🍇 Vivino Batch"}
+              ${this._batchVivino ? "Vivino Scanning..." : "🍇 Vivino Batch Scan"}
             </button>
+            ${this._hasGemini ? html`
+              <button
+                class="btn btn-primary"
+                style="font-size: 0.8em; padding: 5px 10px; background: #00695c;"
+                @click=${() => (this._showWineList = true)}
+                title="Scan a restaurant wine list for ratings and value"
+              >
+                🍽️ Scan Wine List
+              </button>
+            ` : nothing}
             <button
               class="btn btn-icon"
               @click=${() => (this._showRackSettings = true)}
@@ -653,6 +667,9 @@ export class WineCellarCard extends LitElement {
                       <div class="stat">
                         <span class="stat-value">$${this._stats.total_value.toLocaleString()}</span>
                         value
+                        ${this._stats.total_cost
+                          ? html`<span style="font-size:0.75em;color:${this._stats.total_value - this._stats.total_cost >= 0 ? '#2e7d32' : '#c62828'}">${this._stats.total_value - this._stats.total_cost >= 0 ? '+' : ''}$${(this._stats.total_value - this._stats.total_cost).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 0})}</span>`
+                          : nothing}
                       </div>
                     `
                   : nothing}
@@ -828,6 +845,14 @@ export class WineCellarCard extends LitElement {
           @close=${() => (this._showAddDialog = false)}
           @wine-added=${this._onWineAdded}
         ></add-wine-dialog>
+
+        <!-- Wine List Scanner Dialog -->
+        <wine-list-dialog
+          .open=${this._showWineList}
+          .hass=${this.hass}
+          @close=${() => (this._showWineList = false)}
+          @wine-added=${this._onWineAdded}
+        ></wine-list-dialog>
 
         <!-- Rack Settings Dialog -->
         <rack-settings-dialog

@@ -1236,6 +1236,28 @@ let WineDetailDialog = class WineDetailDialog extends i {
         }
         this._analyzing = false;
     }
+    _splitPairings(text) {
+        const result = [];
+        let depth = 0;
+        let current = "";
+        for (const ch of text) {
+            if (ch === "(")
+                depth++;
+            else if (ch === ")")
+                depth--;
+            if (ch === "," && depth === 0) {
+                if (current.trim())
+                    result.push(current.trim());
+                current = "";
+            }
+            else {
+                current += ch;
+            }
+        }
+        if (current.trim())
+            result.push(current.trim());
+        return result;
+    }
     _hasTastingNotes() {
         const n = this._tastingNotes;
         return !!(n.aroma || n.taste || n.finish || n.overall);
@@ -1384,6 +1406,21 @@ let WineDetailDialog = class WineDetailDialog extends i {
                     </div>
                   `
             : A}
+              <div style="display:flex;align-items:center;gap:6px;margin-top:4px;font-size:0.9em">
+                <span style="font-size:0.8em;color:var(--wc-text-secondary)">My Rating</span>
+                <star-rating
+                  .value=${this._userRating}
+                  .readonly=${!this._editing}
+                  .size=${20}
+                  @rating-change=${this._onRatingChange}
+                ></star-rating>
+                ${!this._editing && this._userRating === 0
+            ? b `<span class="no-rating" style="font-size:0.8em">Not rated</span>`
+            : A}
+                <button class="edit-toggle" style="font-size:0.75em;padding:2px 6px" @click=${() => (this._editing = !this._editing)}>
+                  ${this._editing ? "Cancel" : "Edit"}
+                </button>
+              </div>
             </div>
           </div>
 
@@ -1419,7 +1456,7 @@ let WineDetailDialog = class WineDetailDialog extends i {
                     ? b `<span class="info-chip"><span class="info-chip-icon">%</span> ${wine.alcohol}</span>`
                     : A}
                         ${wine.food_pairings
-                    ? wine.food_pairings.split(", ").map((food) => b `<span class="info-chip">${food}</span>`)
+                    ? this._splitPairings(wine.food_pairings).map((food) => b `<span class="info-chip">${food}</span>`)
                     : A}
                       </div>
                     `
@@ -1478,27 +1515,6 @@ let WineDetailDialog = class WineDetailDialog extends i {
                 : A}
 
                 <div class="divider"></div>
-
-                <!-- My Rating section -->
-                <div class="section">
-                  <div class="section-header">
-                    <span class="section-title">My Rating</span>
-                    <button class="edit-toggle" @click=${() => (this._editing = !this._editing)}>
-                      ${this._editing ? "Cancel" : "Edit"}
-                    </button>
-                  </div>
-                  <div class="rating-row">
-                    <star-rating
-                      .value=${this._userRating}
-                      .readonly=${!this._editing}
-                      .size=${28}
-                      @rating-change=${this._onRatingChange}
-                    ></star-rating>
-                    ${!this._editing && this._userRating === 0
-                ? b `<span class="no-rating">Not rated</span>`
-                : A}
-                  </div>
-                </div>
 
                 <!-- Tasting Notes section -->
                 <div class="section">
@@ -1579,12 +1595,12 @@ let WineDetailDialog = class WineDetailDialog extends i {
                   ${this.hasGemini
                 ? b `<button class="btn btn-primary" style="background:#1565c0"
                         ?disabled=${this._analyzing} @click=${this._analyzeWithAI}>
-                        ${this._analyzing ? "..." : "🤖 AI"}
+                        ${this._analyzing ? "..." : "🤖 AI Scan"}
                       </button>`
                 : A}
-                  <button class="btn btn-outline" @click=${this._onCopy}>📋 Copy</button>
-                  <button class="btn btn-outline" @click=${this._onMove}>↔ Move</button>
-                  <button class="btn btn-outline" style="color:#c62828;border-color:#c62828"
+                  <button class="btn btn-primary" style="background:#546e7a" @click=${this._onCopy}>📋 Copy</button>
+                  <button class="btn btn-primary" style="background:#6d4c41" @click=${this._onMove}>↔ Move</button>
+                  <button class="btn btn-primary" style="background:#c62828"
                     @click=${this._onRemove}>✕ Remove</button>
                 </div>
               `}
@@ -4442,6 +4458,792 @@ RackSettingsDialog = __decorate([
     t("rack-settings-dialog")
 ], RackSettingsDialog);
 
+let WineListDialog = class WineListDialog extends i {
+    constructor() {
+        super(...arguments);
+        this.open = false;
+        this._phase = "capture";
+        this._wines = [];
+        this._restaurantName = null;
+        this._currency = "USD";
+        this._error = "";
+        this._enriching = false;
+        this._aiEnriching = false;
+        this._expandedIndex = null;
+        this._addedIndices = new Set();
+        this._cancelEnrichment = false;
+    }
+    updated(changedProps) {
+        if (changedProps.has("open") && this.open) {
+            // Reset when opening
+            this._phase = "capture";
+            this._wines = [];
+            this._restaurantName = null;
+            this._currency = "USD";
+            this._error = "";
+            this._enriching = false;
+            this._aiEnriching = false;
+            this._expandedIndex = null;
+            this._addedIndices = new Set();
+            this._cancelEnrichment = false;
+        }
+    }
+    _close() {
+        this._cancelEnrichment = true;
+        this.open = false;
+        this.dispatchEvent(new CustomEvent("close"));
+    }
+    async _onPhotoCaptured(e) {
+        this._phase = "extracting";
+        this._error = "";
+        try {
+            const result = await this.hass.callWS({
+                type: "wine_cellar/extract_wine_list",
+                image: e.detail.image,
+            });
+            if (result.error) {
+                this._error = result.error;
+                this._phase = "capture";
+                return;
+            }
+            const data = result.result;
+            const baseIndex = this._wines.length;
+            const newWines = data.wines.map((w, i) => ({
+                ...w,
+                index: baseIndex + i,
+                vivino_rating: null,
+                vivino_ratings_count: null,
+                vivino_price: null,
+                vivino_image_url: "",
+                ai_ratings: null,
+                ai_description: "",
+                ai_disposition: "",
+                ai_drink_window: "",
+                ai_estimated_price: null,
+                vivino_status: "pending",
+                ai_status: "pending",
+            }));
+            this._wines = [...this._wines, ...newWines];
+            this._restaurantName = data.restaurant_name || this._restaurantName;
+            this._currency = data.currency || "USD";
+            this._phase = "results";
+            // Auto-start Vivino enrichment for new wines
+            this._startVivinoEnrichment();
+        }
+        catch (err) {
+            this._error = `Extraction failed: ${err?.message || err}`;
+            this._phase = "capture";
+        }
+    }
+    async _startVivinoEnrichment() {
+        this._enriching = true;
+        this._cancelEnrichment = false;
+        for (const wine of this._wines) {
+            if (this._cancelEnrichment)
+                break;
+            if (wine.vivino_status !== "pending")
+                continue;
+            wine.vivino_status = "loading";
+            this._wines = [...this._wines];
+            try {
+                const resp = await this.hass.callWS({
+                    type: "wine_cellar/enrich_wine_vivino",
+                    wine: {
+                        name: wine.name,
+                        winery: wine.winery,
+                        vintage: wine.vintage,
+                        type: wine.type,
+                    },
+                });
+                if (resp.result) {
+                    wine.vivino_rating = resp.result.rating;
+                    wine.vivino_ratings_count = resp.result.ratings_count;
+                    wine.vivino_price = resp.result.price || null;
+                    wine.vivino_image_url = resp.result.image_url || "";
+                }
+                wine.vivino_status = "done";
+            }
+            catch {
+                wine.vivino_status = "error";
+            }
+            this._wines = [...this._wines];
+            // Rate limit
+            await new Promise((r) => setTimeout(r, 1000));
+        }
+        this._enriching = false;
+    }
+    async _startAIEnrichment() {
+        this._aiEnriching = true;
+        this._cancelEnrichment = false;
+        for (const wine of this._wines) {
+            if (this._cancelEnrichment)
+                break;
+            if (wine.ai_status !== "pending")
+                continue;
+            wine.ai_status = "loading";
+            this._wines = [...this._wines];
+            try {
+                const resp = await this.hass.callWS({
+                    type: "wine_cellar/analyze_wine_transient",
+                    wine: {
+                        name: wine.name,
+                        winery: wine.winery,
+                        vintage: wine.vintage,
+                        type: wine.type,
+                        region: wine.region,
+                        country: wine.country,
+                        grape_variety: wine.grape_variety,
+                    },
+                });
+                if (resp.result) {
+                    const r = resp.result;
+                    const ratings = {};
+                    for (const key of ["rating_ws", "rating_rp", "rating_jd", "rating_ag"]) {
+                        const val = r[key];
+                        if (val && typeof val === "number" && val >= 50 && val <= 100) {
+                            ratings[key] = val;
+                        }
+                    }
+                    wine.ai_ratings = Object.keys(ratings).length ? ratings : null;
+                    wine.ai_description = r.description || "";
+                    wine.ai_disposition = r.disposition || "";
+                    wine.ai_drink_window = r.drink_window || "";
+                    wine.ai_estimated_price = r.estimated_price || null;
+                }
+                wine.ai_status = "done";
+            }
+            catch {
+                wine.ai_status = "error";
+            }
+            this._wines = [...this._wines];
+            await new Promise((r) => setTimeout(r, 500));
+        }
+        this._aiEnriching = false;
+    }
+    async _addToCellar(wine) {
+        try {
+            await this.hass.callWS({
+                type: "wine_cellar/add_wine",
+                wine: {
+                    name: wine.name,
+                    winery: wine.winery,
+                    vintage: wine.vintage,
+                    type: wine.type,
+                    region: wine.region,
+                    country: wine.country,
+                    grape_variety: wine.grape_variety,
+                    rating: wine.vivino_rating,
+                    ratings_count: wine.vivino_ratings_count,
+                    image_url: wine.vivino_image_url,
+                    price: wine.list_price,
+                    retail_price: wine.vivino_price || wine.ai_estimated_price,
+                    description: wine.ai_description,
+                    ai_ratings: wine.ai_ratings,
+                    disposition: wine.ai_disposition,
+                    drink_window: wine.ai_drink_window,
+                },
+            });
+            this._addedIndices = new Set([...this._addedIndices, wine.index]);
+            this.dispatchEvent(new CustomEvent("wine-added", { bubbles: true, composed: true }));
+        }
+        catch (err) {
+            console.error("Failed to add wine from list", err);
+        }
+    }
+    _scanAnotherPage() {
+        this._phase = "capture";
+        this._error = "";
+    }
+    _formatPrice(amount, currency = "USD") {
+        if (amount === null || amount === undefined)
+            return "---";
+        const symbols = {
+            USD: "$", EUR: "\u20AC", GBP: "\u00A3", JPY: "\u00A5",
+            CHF: "CHF ", AUD: "A$", CAD: "C$",
+        };
+        const sym = symbols[currency] || `${currency} `;
+        return `${sym}${amount.toFixed(0)}`;
+    }
+    _calcMarkup(listPrice, marketPrice) {
+        if (!listPrice || !marketPrice || marketPrice <= 0)
+            return null;
+        const pct = ((listPrice - marketPrice) / marketPrice) * 100;
+        const text = `${pct >= 0 ? "+" : ""}${Math.round(pct)}%`;
+        const ratio = listPrice / marketPrice;
+        const color = ratio <= 1.5 ? "#2e7d32" : ratio <= 2.5 ? "#f57f17" : "#c62828";
+        return { text, color };
+    }
+    _getValueBadge(wine) {
+        const listPrice = wine.list_price;
+        const marketPrice = wine.vivino_price || wine.ai_estimated_price;
+        if (!listPrice || !marketPrice)
+            return null;
+        const ratio = listPrice / marketPrice;
+        if (ratio <= 1.5)
+            return { label: "Great Value", color: "#2e7d32" };
+        if (ratio <= 2.0)
+            return { label: "Fair Price", color: "#558b2f" };
+        if (ratio <= 3.0)
+            return { label: "Typical", color: "#f57f17" };
+        return { label: "Premium", color: "#c62828" };
+    }
+    _renderWineItem(wine) {
+        const typeColor = WINE_TYPE_COLORS[wine.type] || WINE_TYPE_COLORS.red;
+        const expanded = this._expandedIndex === wine.index;
+        const added = this._addedIndices.has(wine.index);
+        const marketPrice = wine.vivino_price || wine.ai_estimated_price;
+        const markup = this._calcMarkup(wine.list_price, marketPrice);
+        const valueBadge = this._getValueBadge(wine);
+        return b `
+      <div
+        class="wine-list-item ${expanded ? "expanded" : ""}"
+        @click=${() => (this._expandedIndex = expanded ? null : wine.index)}
+      >
+        <div class="wl-type-dot" style="background: ${typeColor}"></div>
+        ${wine.vivino_image_url
+            ? b `<img class="wl-thumb" src="${wine.vivino_image_url}" alt="" />`
+            : A}
+        <div class="wl-info">
+          <div class="wl-name">${wine.winery ? `${wine.winery} ` : ""}${wine.name}</div>
+          <div class="wl-meta">
+            ${wine.vintage || "NV"} ${wine.region ? `\u2022 ${wine.region}` : ""}
+            ${wine.grape_variety ? `\u2022 ${wine.grape_variety}` : ""}
+          </div>
+
+          <!-- Prices -->
+          <div class="wl-price-row">
+            ${wine.list_price !== null
+            ? b `<span class="wl-list-price">${this._formatPrice(wine.list_price, this._currency)}</span>`
+            : A}
+            ${marketPrice
+            ? b `<span class="wl-market-price">${this._formatPrice(marketPrice, "USD")}</span>`
+            : A}
+            ${markup
+            ? b `<span class="wl-markup-badge" style="background:${markup.color}">${markup.text}</span>`
+            : A}
+            ${valueBadge
+            ? b `<span class="wl-value-badge" style="background:${valueBadge.color}">${valueBadge.label}</span>`
+            : A}
+          </div>
+
+          <!-- Scores row -->
+          <div class="wl-scores">
+            ${wine.vivino_status === "loading"
+            ? b `<span class="wl-loading-dot"></span>`
+            : wine.vivino_rating
+                ? b `<span class="wl-vivino-rating">\u2605 ${wine.vivino_rating.toFixed(1)}</span>`
+                : A}
+            ${wine.ai_status === "loading"
+            ? b `<span class="wl-loading-dot"></span>`
+            : A}
+            ${wine.ai_ratings
+            ? b `
+                  <div class="wl-ai-chips">
+                    ${wine.ai_ratings.rating_ws ? b `<span class="wl-ai-chip">WS ${wine.ai_ratings.rating_ws}</span>` : A}
+                    ${wine.ai_ratings.rating_rp ? b `<span class="wl-ai-chip">RP ${wine.ai_ratings.rating_rp}</span>` : A}
+                    ${wine.ai_ratings.rating_jd ? b `<span class="wl-ai-chip">JD ${wine.ai_ratings.rating_jd}</span>` : A}
+                    ${wine.ai_ratings.rating_ag ? b `<span class="wl-ai-chip">AG ${wine.ai_ratings.rating_ag}</span>` : A}
+                  </div>
+                `
+            : A}
+          </div>
+
+          <!-- Expanded details -->
+          ${expanded
+            ? b `
+                <div class="wl-expanded-detail">
+                  ${wine.ai_description
+                ? b `<div class="wl-detail-row" style="font-style:italic">${wine.ai_description}</div>`
+                : A}
+                  ${wine.ai_drink_window
+                ? b `<div class="wl-detail-row"><span class="wl-detail-label">Drink window:</span>${wine.ai_drink_window}</div>`
+                : A}
+                  ${wine.glass_price
+                ? b `<div class="wl-detail-row"><span class="wl-detail-label">By the glass:</span>${this._formatPrice(wine.glass_price, this._currency)}</div>`
+                : A}
+                  ${wine.bottle_size && wine.bottle_size !== "750ml"
+                ? b `<div class="wl-detail-row"><span class="wl-detail-label">Size:</span>${wine.bottle_size}</div>`
+                : A}
+                  ${wine.vivino_ratings_count
+                ? b `<div class="wl-detail-row"><span class="wl-detail-label">Vivino:</span>${wine.vivino_rating?.toFixed(1)} (${wine.vivino_ratings_count.toLocaleString()} ratings)</div>`
+                : A}
+                </div>
+              `
+            : A}
+        </div>
+
+        <div class="wl-actions" @click=${(e) => e.stopPropagation()}>
+          <button
+            class="wl-add-btn ${added ? "added" : ""}"
+            ?disabled=${added}
+            @click=${() => !added && this._addToCellar(wine)}
+          >
+            ${added ? "\u2713" : "+ Add"}
+          </button>
+        </div>
+      </div>
+    `;
+    }
+    render() {
+        if (!this.open)
+            return A;
+        const vivinoDone = this._wines.filter((w) => w.vivino_status === "done" || w.vivino_status === "error").length;
+        const aiDone = this._wines.filter((w) => w.ai_status === "done" || w.ai_status === "error").length;
+        const total = this._wines.length;
+        return b `
+      <div class="dialog-overlay" @click=${this._close}>
+        <div class="dialog" style="max-width:600px" @click=${(e) => e.stopPropagation()}>
+          <div class="header">
+            <span class="header-title">
+              ${this._phase === "capture"
+            ? "\uD83C\uDF7D\uFE0F Scan Wine List"
+            : this._restaurantName
+                ? `\uD83C\uDF7D\uFE0F ${this._restaurantName}`
+                : "\uD83C\uDF7D\uFE0F Wine List"}
+            </span>
+            <button class="close-btn" @click=${this._close}>\u2715</button>
+          </div>
+
+          ${this._phase === "capture"
+            ? b `
+                ${this._error
+                ? b `<div class="error-msg">${this._error}</div>`
+                : A}
+                ${this._wines.length > 0
+                ? b `<div class="header-subtitle">${this._wines.length} wines already scanned. Take another photo to add more.</div>`
+                : b `<div class="header-subtitle">Take a photo of a restaurant wine list to see ratings, scores, and value.</div>`}
+                <div style="padding: 0 16px 16px">
+                  <label-camera @photo-captured=${this._onPhotoCaptured}></label-camera>
+                </div>
+                ${this._wines.length > 0
+                ? b `
+                      <div class="footer-actions">
+                        <button class="btn btn-primary" @click=${() => (this._phase = "results")}>
+                          Back to Results (${this._wines.length})
+                        </button>
+                      </div>
+                    `
+                : A}
+              `
+            : A}
+
+          ${this._phase === "extracting"
+            ? b `
+                <div class="extracting">
+                  <div class="spinner"></div>
+                  <div>Analyzing wine list...</div>
+                  <div style="font-size:0.85em">Gemini is reading the menu</div>
+                </div>
+              `
+            : A}
+
+          ${this._phase === "results"
+            ? b `
+                <div class="header-subtitle">
+                  ${total} wine${total !== 1 ? "s" : ""} found
+                  ${this._currency !== "USD" ? ` \u2022 Prices in ${this._currency}` : ""}
+                </div>
+
+                <!-- Vivino enrichment progress -->
+                ${this._enriching
+                ? b `
+                      <div class="enrichment-bar">
+                        <span>\uD83C\uDF47 Vivino ${vivinoDone}/${total}</span>
+                        <div class="progress-track">
+                          <div
+                            class="progress-fill vivino"
+                            style="width: ${total ? (vivinoDone / total) * 100 : 0}%"
+                          ></div>
+                        </div>
+                      </div>
+                    `
+                : A}
+
+                <!-- AI enrichment progress -->
+                ${this._aiEnriching
+                ? b `
+                      <div class="enrichment-bar">
+                        <span>\uD83E\uDD16 AI ${aiDone}/${total}</span>
+                        <div class="progress-track">
+                          <div
+                            class="progress-fill ai"
+                            style="width: ${total ? (aiDone / total) * 100 : 0}%"
+                          ></div>
+                        </div>
+                      </div>
+                    `
+                : A}
+
+                <div class="wine-list-results">
+                  ${this._wines.map((w) => this._renderWineItem(w))}
+                </div>
+
+                <div class="footer-actions">
+                  ${!this._aiEnriching && this._wines.some((w) => w.ai_status === "pending")
+                ? b `
+                        <button
+                          class="btn btn-primary"
+                          style="background:#1565c0"
+                          @click=${this._startAIEnrichment}
+                        >
+                          \uD83E\uDD16 Get AI Scores
+                        </button>
+                      `
+                : A}
+                  <button
+                    class="btn btn-primary"
+                    style="background:#00695c"
+                    @click=${this._scanAnotherPage}
+                  >
+                    \uD83D\uDCF7 Scan Another Page
+                  </button>
+                </div>
+              `
+            : A}
+        </div>
+      </div>
+    `;
+    }
+};
+WineListDialog.styles = [
+    sharedStyles,
+    i$3 `
+      .header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 16px 20px 8px;
+      }
+
+      .header-title {
+        font-size: 1.1em;
+        font-weight: 600;
+        color: var(--wc-text);
+      }
+
+      .header-subtitle {
+        font-size: 0.8em;
+        color: var(--wc-text-secondary);
+        padding: 0 20px 12px;
+      }
+
+      .close-btn {
+        background: none;
+        border: none;
+        font-size: 1.3em;
+        cursor: pointer;
+        color: var(--wc-text-secondary);
+        padding: 4px 8px;
+        border-radius: 6px;
+        line-height: 1;
+      }
+
+      .close-btn:hover {
+        background: rgba(255, 255, 255, 0.1);
+      }
+
+      .extracting {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 16px;
+        padding: 40px 20px;
+        color: var(--wc-text-secondary);
+      }
+
+      .spinner {
+        width: 40px;
+        height: 40px;
+        border: 3px solid var(--wc-border);
+        border-top: 3px solid var(--wc-primary, #6d4c41);
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+
+      .error-msg {
+        padding: 12px 20px;
+        color: #c62828;
+        font-size: 0.85em;
+        background: rgba(198, 40, 40, 0.08);
+        border-radius: 8px;
+        margin: 0 20px 12px;
+      }
+
+      .enrichment-bar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 20px;
+        font-size: 0.8em;
+        color: var(--wc-text-secondary);
+      }
+
+      .progress-track {
+        flex: 1;
+        height: 4px;
+        background: var(--wc-border);
+        border-radius: 2px;
+        overflow: hidden;
+      }
+
+      .progress-fill {
+        height: 100%;
+        border-radius: 2px;
+        transition: width 0.3s;
+      }
+
+      .progress-fill.vivino { background: #8e24aa; }
+      .progress-fill.ai { background: #1565c0; }
+
+      .wine-list-results {
+        max-height: 55vh;
+        overflow-y: auto;
+        padding: 0 16px 16px;
+      }
+
+      .wine-list-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 10px 12px;
+        border: 1px solid var(--wc-border);
+        border-radius: 10px;
+        margin-bottom: 8px;
+        transition: background 0.2s;
+        cursor: pointer;
+      }
+
+      .wine-list-item:hover {
+        background: rgba(255, 255, 255, 0.04);
+      }
+
+      .wine-list-item.expanded {
+        background: rgba(255, 255, 255, 0.06);
+      }
+
+      .wl-type-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        flex-shrink: 0;
+        margin-top: 5px;
+      }
+
+      .wl-thumb {
+        width: 28px;
+        height: 40px;
+        border-radius: 4px;
+        object-fit: cover;
+        flex-shrink: 0;
+      }
+
+      .wl-info {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .wl-name {
+        font-weight: 600;
+        font-size: 0.88em;
+        color: var(--wc-text);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .wl-meta {
+        font-size: 0.78em;
+        color: var(--wc-text-secondary);
+        margin-top: 1px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .wl-scores {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        margin-top: 4px;
+        flex-wrap: wrap;
+      }
+
+      .wl-vivino-rating {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        font-size: 0.82em;
+        font-weight: 600;
+        color: #f5a623;
+      }
+
+      .wl-price-row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin-top: 3px;
+        font-size: 0.82em;
+      }
+
+      .wl-list-price {
+        font-weight: 600;
+        color: var(--wc-text);
+      }
+
+      .wl-market-price {
+        color: var(--wc-text-secondary);
+        text-decoration: line-through;
+      }
+
+      .wl-markup-badge {
+        font-size: 0.72em;
+        font-weight: 600;
+        padding: 1px 6px;
+        border-radius: 8px;
+        color: #fff;
+      }
+
+      .wl-value-badge {
+        font-size: 0.7em;
+        font-weight: 500;
+        padding: 1px 6px;
+        border-radius: 8px;
+        color: #fff;
+      }
+
+      .wl-ai-chips {
+        display: flex;
+        gap: 4px;
+        flex-wrap: wrap;
+        margin-top: 4px;
+      }
+
+      .wl-ai-chip {
+        font-size: 0.7em;
+        padding: 2px 6px;
+        border-radius: 10px;
+        background: rgba(245, 166, 35, 0.12);
+        border: 1px solid rgba(245, 166, 35, 0.3);
+        color: #f5a623;
+        font-weight: 600;
+      }
+
+      .wl-expanded-detail {
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px solid var(--wc-border);
+        font-size: 0.82em;
+        color: var(--wc-text-secondary);
+        line-height: 1.4;
+      }
+
+      .wl-detail-row {
+        margin-bottom: 4px;
+      }
+
+      .wl-detail-label {
+        font-weight: 600;
+        color: var(--wc-text);
+        margin-right: 4px;
+      }
+
+      .wl-loading-dot {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border: 2px solid var(--wc-border);
+        border-top: 2px solid var(--wc-primary, #6d4c41);
+        border-radius: 50%;
+        animation: spin 0.6s linear infinite;
+      }
+
+      .wl-actions {
+        flex-shrink: 0;
+      }
+
+      .wl-add-btn {
+        background: #2e7d32;
+        color: #fff;
+        border: none;
+        border-radius: 6px;
+        font-size: 0.75em;
+        padding: 4px 8px;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+
+      .wl-add-btn:hover { background: #1b5e20; }
+
+      .wl-add-btn.added {
+        background: #546e7a;
+        cursor: default;
+      }
+
+      .footer-actions {
+        display: flex;
+        gap: 8px;
+        padding: 12px 16px 16px;
+        border-top: 1px solid var(--wc-border);
+        justify-content: center;
+        flex-wrap: wrap;
+      }
+
+      .footer-actions .btn {
+        font-size: 0.8em;
+        padding: 6px 12px;
+      }
+
+      @media (max-width: 599px) {
+        .wine-list-results {
+          max-height: 65vh;
+        }
+      }
+    `,
+];
+__decorate([
+    n({ type: Boolean })
+], WineListDialog.prototype, "open", void 0);
+__decorate([
+    n({ attribute: false })
+], WineListDialog.prototype, "hass", void 0);
+__decorate([
+    r()
+], WineListDialog.prototype, "_phase", void 0);
+__decorate([
+    r()
+], WineListDialog.prototype, "_wines", void 0);
+__decorate([
+    r()
+], WineListDialog.prototype, "_restaurantName", void 0);
+__decorate([
+    r()
+], WineListDialog.prototype, "_currency", void 0);
+__decorate([
+    r()
+], WineListDialog.prototype, "_error", void 0);
+__decorate([
+    r()
+], WineListDialog.prototype, "_enriching", void 0);
+__decorate([
+    r()
+], WineListDialog.prototype, "_aiEnriching", void 0);
+__decorate([
+    r()
+], WineListDialog.prototype, "_expandedIndex", void 0);
+__decorate([
+    r()
+], WineListDialog.prototype, "_addedIndices", void 0);
+__decorate([
+    r()
+], WineListDialog.prototype, "_cancelEnrichment", void 0);
+WineListDialog = __decorate([
+    t("wine-list-dialog")
+], WineListDialog);
+
 let WineCellarCard = class WineCellarCard extends i {
     constructor() {
         super(...arguments);
@@ -4463,6 +5265,7 @@ let WineCellarCard = class WineCellarCard extends i {
         this._batchVivino = false;
         this._toast = "";
         this._hasGemini = false;
+        this._showWineList = false;
     }
     setConfig(config) {
         this._config = config;
@@ -4525,8 +5328,10 @@ let WineCellarCard = class WineCellarCard extends i {
             const q = this._searchQuery.toLowerCase();
             wines = wines.filter((w) => w.name.toLowerCase().includes(q) ||
                 w.winery.toLowerCase().includes(q) ||
-                w.region.toLowerCase().includes(q) ||
-                w.grape_variety.toLowerCase().includes(q));
+                (w.region || "").toLowerCase().includes(q) ||
+                (w.grape_variety || "").toLowerCase().includes(q) ||
+                (w.type || "").toLowerCase().includes(q) ||
+                (w.country || "").toLowerCase().includes(q));
         }
         return wines;
     }
@@ -4774,7 +5579,7 @@ let WineCellarCard = class WineCellarCard extends i {
                 title="Full AI analysis on all wines (disposition, ratings, price, description)"
                 ?disabled=${this._analyzing || this._batchVivino}
               >
-                ${this._analyzing ? "AI Scanning..." : "🤖 AI Batch"}
+                ${this._analyzing ? "AI Scanning..." : "🤖 AI Batch Scan"}
               </button>
             ` : A}
             <button
@@ -4784,8 +5589,18 @@ let WineCellarCard = class WineCellarCard extends i {
               title="Refresh all wines from Vivino (ratings, price, description)"
               ?disabled=${this._batchVivino || this._analyzing}
             >
-              ${this._batchVivino ? "Vivino Scanning..." : "🍇 Vivino Batch"}
+              ${this._batchVivino ? "Vivino Scanning..." : "🍇 Vivino Batch Scan"}
             </button>
+            ${this._hasGemini ? b `
+              <button
+                class="btn btn-primary"
+                style="font-size: 0.8em; padding: 5px 10px; background: #00695c;"
+                @click=${() => (this._showWineList = true)}
+                title="Scan a restaurant wine list for ratings and value"
+              >
+                🍽️ Scan Wine List
+              </button>
+            ` : A}
             <button
               class="btn btn-icon"
               @click=${() => (this._showRackSettings = true)}
@@ -4846,6 +5661,9 @@ let WineCellarCard = class WineCellarCard extends i {
                       <div class="stat">
                         <span class="stat-value">$${this._stats.total_value.toLocaleString()}</span>
                         value
+                        ${this._stats.total_cost
+                    ? b `<span style="font-size:0.75em;color:${this._stats.total_value - this._stats.total_cost >= 0 ? '#2e7d32' : '#c62828'}">${this._stats.total_value - this._stats.total_cost >= 0 ? '+' : ''}$${(this._stats.total_value - this._stats.total_cost).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>`
+                    : A}
                       </div>
                     `
                 : A}
@@ -5008,6 +5826,14 @@ let WineCellarCard = class WineCellarCard extends i {
           @close=${() => (this._showAddDialog = false)}
           @wine-added=${this._onWineAdded}
         ></add-wine-dialog>
+
+        <!-- Wine List Scanner Dialog -->
+        <wine-list-dialog
+          .open=${this._showWineList}
+          .hass=${this.hass}
+          @close=${() => (this._showWineList = false)}
+          @wine-added=${this._onWineAdded}
+        ></wine-list-dialog>
 
         <!-- Rack Settings Dialog -->
         <rack-settings-dialog
@@ -5290,6 +6116,9 @@ __decorate([
 __decorate([
     r()
 ], WineCellarCard.prototype, "_hasGemini", void 0);
+__decorate([
+    r()
+], WineCellarCard.prototype, "_showWineList", void 0);
 WineCellarCard = __decorate([
     t("wine-cellar-card")
 ], WineCellarCard);

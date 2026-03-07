@@ -88,6 +88,9 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_analyze_single_wine)
     websocket_api.async_register_command(hass, ws_batch_analyze_wines)
     websocket_api.async_register_command(hass, ws_batch_refresh_vivino)
+    websocket_api.async_register_command(hass, ws_extract_wine_list)
+    websocket_api.async_register_command(hass, ws_enrich_wine_vivino)
+    websocket_api.async_register_command(hass, ws_analyze_wine_transient)
 
 
 @websocket_api.websocket_command({vol.Required("type"): "wine_cellar/get_wines"})
@@ -173,8 +176,24 @@ async def ws_update_wine(
 ) -> None:
     """Update a wine's details."""
     storage = hass.data[DOMAIN]["storage"]
-    wine = storage.update_wine(msg["wine_id"], msg["updates"])
+    updates = msg["updates"]
+    wine = storage.update_wine(msg["wine_id"], updates)
     if wine:
+        # Propagate user_rating/tasting_notes to duplicates (same name+winery+vintage)
+        rating_fields = {"user_rating", "tasting_notes"} & set(updates.keys())
+        if rating_fields:
+            dup_updates = {k: updates[k] for k in rating_fields}
+            name = wine.get("name", "")
+            winery = wine.get("winery", "")
+            vintage = wine.get("vintage")
+            for other in storage.wines:
+                if (
+                    other["id"] != wine["id"]
+                    and other.get("name") == name
+                    and other.get("winery") == winery
+                    and other.get("vintage") == vintage
+                ):
+                    storage.update_wine(other["id"], dup_updates)
         await storage.async_save()
         hass.bus.async_fire(f"{DOMAIN}_updated")
     connection.send_result(msg["id"], {"wine": wine})
@@ -769,3 +788,107 @@ async def ws_batch_refresh_vivino(
         msg["id"],
         {"updated": updated, "total": total, "errors": errors},
     )
+
+
+# --- Wine List Scanner ---
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "wine_cellar/extract_wine_list",
+        vol.Required("image"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_extract_wine_list(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Extract wines from a restaurant wine list photo using Gemini Vision."""
+    gemini = hass.data[DOMAIN].get("gemini")
+    if not gemini:
+        connection.send_result(
+            msg["id"],
+            {"result": None, "error": "Gemini API key not configured."},
+        )
+        return
+
+    result = await gemini.extract_wine_list(msg["image"])
+
+    if "error" in result:
+        connection.send_result(msg["id"], {"result": None, "error": result["error"]})
+    else:
+        connection.send_result(msg["id"], {"result": result, "error": None})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "wine_cellar/enrich_wine_vivino",
+        vol.Required("wine"): dict,
+    }
+)
+@websocket_api.async_response
+async def ws_enrich_wine_vivino(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Look up a transient wine on Vivino (not stored in cellar)."""
+    vivino = hass.data[DOMAIN].get("vivino")
+    if not vivino:
+        connection.send_result(msg["id"], {"result": None, "error": "Vivino not available."})
+        return
+
+    wine = msg["wine"]
+    parts = []
+    if wine.get("winery"):
+        parts.append(wine["winery"])
+    if wine.get("name"):
+        parts.append(wine["name"])
+    if wine.get("vintage"):
+        parts.append(str(wine["vintage"]))
+    query = " ".join(parts)
+
+    if not query:
+        connection.send_result(msg["id"], {"result": None, "error": "No search query."})
+        return
+
+    try:
+        result = await vivino.search_wine(query)
+        if not result:
+            connection.send_result(msg["id"], {"result": None})
+            return
+        connection.send_result(msg["id"], {"result": result[0]})
+    except Exception as err:
+        _LOGGER.warning("Vivino enrich error: %s", err)
+        connection.send_result(msg["id"], {"result": None, "error": str(err)})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "wine_cellar/analyze_wine_transient",
+        vol.Required("wine"): dict,
+    }
+)
+@websocket_api.async_response
+async def ws_analyze_wine_transient(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """AI analysis for a transient wine (not stored in cellar)."""
+    gemini = hass.data[DOMAIN].get("gemini")
+    if not gemini:
+        connection.send_result(msg["id"], {"result": None, "error": "Gemini not configured."})
+        return
+
+    try:
+        result = await gemini.analyze_single_wine(msg["wine"])
+        if "error" in result:
+            connection.send_result(msg["id"], {"result": None, "error": result["error"]})
+        else:
+            connection.send_result(msg["id"], {"result": result})
+    except Exception as err:
+        _LOGGER.warning("Transient AI analysis error: %s", err)
+        connection.send_result(msg["id"], {"result": None, "error": str(err)})

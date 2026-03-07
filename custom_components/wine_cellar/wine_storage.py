@@ -203,6 +203,7 @@ class WineCellarStorage:
         by_type: dict[str, int] = {}
         by_cabinet: dict[str, int] = {}
         total_value = 0.0
+        total_cost = 0.0
         for wine in self.wines:
             wine_type = wine.get("type", "unknown")
             by_type[wine_type] = by_type.get(wine_type, 0) + 1
@@ -212,12 +213,17 @@ class WineCellarStorage:
             price = wine.get("retail_price") or wine.get("price")
             if price and isinstance(price, (int, float)):
                 total_value += price
+            # Track purchase cost separately
+            cost = wine.get("price")
+            if cost and isinstance(cost, (int, float)):
+                total_cost += cost
 
         return {
             "total_bottles": total_bottles,
             "total_capacity": total_capacity,
             "available_slots": total_capacity - total_bottles,
             "total_value": round(total_value, 2),
+            "total_cost": round(total_cost, 2),
             "by_type": by_type,
             "by_cabinet": by_cabinet,
         }

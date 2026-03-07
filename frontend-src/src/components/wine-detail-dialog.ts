@@ -629,6 +629,24 @@ export class WineDetailDialog extends LitElement {
     this._analyzing = false;
   }
 
+  private _splitPairings(text: string): string[] {
+    const result: string[] = [];
+    let depth = 0;
+    let current = "";
+    for (const ch of text) {
+      if (ch === "(") depth++;
+      else if (ch === ")") depth--;
+      if (ch === "," && depth === 0) {
+        if (current.trim()) result.push(current.trim());
+        current = "";
+      } else {
+        current += ch;
+      }
+    }
+    if (current.trim()) result.push(current.trim());
+    return result;
+  }
+
   private _hasTastingNotes(): boolean {
     const n = this._tastingNotes;
     return !!(n.aroma || n.taste || n.finish || n.overall);
@@ -786,6 +804,21 @@ export class WineDetailDialog extends LitElement {
                     </div>
                   `
                 : nothing}
+              <div style="display:flex;align-items:center;gap:6px;margin-top:4px;font-size:0.9em">
+                <span style="font-size:0.8em;color:var(--wc-text-secondary)">My Rating</span>
+                <star-rating
+                  .value=${this._userRating}
+                  .readonly=${!this._editing}
+                  .size=${20}
+                  @rating-change=${this._onRatingChange}
+                ></star-rating>
+                ${!this._editing && this._userRating === 0
+                  ? html`<span class="no-rating" style="font-size:0.8em">Not rated</span>`
+                  : nothing}
+                <button class="edit-toggle" style="font-size:0.75em;padding:2px 6px" @click=${() => (this._editing = !this._editing)}>
+                  ${this._editing ? "Cancel" : "Edit"}
+                </button>
+              </div>
             </div>
           </div>
 
@@ -821,7 +854,7 @@ export class WineDetailDialog extends LitElement {
                           ? html`<span class="info-chip"><span class="info-chip-icon">%</span> ${wine.alcohol}</span>`
                           : nothing}
                         ${wine.food_pairings
-                          ? wine.food_pairings.split(", ").map(
+                          ? this._splitPairings(wine.food_pairings).map(
                               (food: string) => html`<span class="info-chip">${food}</span>`
                             )
                           : nothing}
@@ -882,27 +915,6 @@ export class WineDetailDialog extends LitElement {
                   : nothing}
 
                 <div class="divider"></div>
-
-                <!-- My Rating section -->
-                <div class="section">
-                  <div class="section-header">
-                    <span class="section-title">My Rating</span>
-                    <button class="edit-toggle" @click=${() => (this._editing = !this._editing)}>
-                      ${this._editing ? "Cancel" : "Edit"}
-                    </button>
-                  </div>
-                  <div class="rating-row">
-                    <star-rating
-                      .value=${this._userRating}
-                      .readonly=${!this._editing}
-                      .size=${28}
-                      @rating-change=${this._onRatingChange}
-                    ></star-rating>
-                    ${!this._editing && this._userRating === 0
-                      ? html`<span class="no-rating">Not rated</span>`
-                      : nothing}
-                  </div>
-                </div>
 
                 <!-- Tasting Notes section -->
                 <div class="section">
@@ -984,12 +996,12 @@ export class WineDetailDialog extends LitElement {
                   ${this.hasGemini
                     ? html`<button class="btn btn-primary" style="background:#1565c0"
                         ?disabled=${this._analyzing} @click=${this._analyzeWithAI}>
-                        ${this._analyzing ? "..." : "🤖 AI"}
+                        ${this._analyzing ? "..." : "🤖 AI Scan"}
                       </button>`
                     : nothing}
-                  <button class="btn btn-outline" @click=${this._onCopy}>📋 Copy</button>
-                  <button class="btn btn-outline" @click=${this._onMove}>↔ Move</button>
-                  <button class="btn btn-outline" style="color:#c62828;border-color:#c62828"
+                  <button class="btn btn-primary" style="background:#546e7a" @click=${this._onCopy}>📋 Copy</button>
+                  <button class="btn btn-primary" style="background:#6d4c41" @click=${this._onMove}>↔ Move</button>
+                  <button class="btn btn-primary" style="background:#c62828"
                     @click=${this._onRemove}>✕ Remove</button>
                 </div>
               `}

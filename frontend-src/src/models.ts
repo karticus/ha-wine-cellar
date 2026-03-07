@@ -60,6 +60,7 @@ export interface CellarStats {
   total_capacity: number;
   available_slots: number;
   total_value: number;
+  total_cost: number;
   by_type: Record<string, number>;
   by_cabinet: Record<string, number>;
 }
@@ -76,6 +77,35 @@ export interface BarcodeLookupResult {
   image_url: string;
   price: number | null;
   source: string;
+}
+
+export interface WineListItem {
+  index: number;
+  name: string;
+  winery: string;
+  vintage: number | null;
+  type: WineType;
+  region: string;
+  country: string;
+  grape_variety: string;
+  list_price: number | null;
+  list_price_currency: string;
+  glass_price: number | null;
+  bottle_size: string;
+  // Enriched by Vivino
+  vivino_rating: number | null;
+  vivino_ratings_count: number | null;
+  vivino_price: number | null;
+  vivino_image_url: string;
+  // Enriched by AI
+  ai_ratings: Record<string, number> | null;
+  ai_description: string;
+  ai_disposition: string;
+  ai_drink_window: string;
+  ai_estimated_price: number | null;
+  // Status
+  vivino_status: "pending" | "loading" | "done" | "error";
+  ai_status: "pending" | "loading" | "done" | "error" | "skipped";
 }
 
 export type WineType = "red" | "white" | "rosé" | "sparkling" | "dessert";
