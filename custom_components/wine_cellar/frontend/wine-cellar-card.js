@@ -4509,9 +4509,17 @@ let RackSettingsDialog = class RackSettingsDialog extends i {
     _startEdit(cabinet) {
         this._mode = "edit";
         this._error = "";
-        this._editCabinet = { ...cabinet };
-        // Initialize storage rows from cabinet data
-        this._editStorageRows = [...(cabinet.storage_rows || [])];
+        this._editCabinet = {
+            ...cabinet,
+            orientation: cabinet.orientation || "vertical",
+        };
+        // Initialize storage rows from cabinet data, ensuring boxes arrays exist
+        this._editStorageRows = (cabinet.storage_rows || []).map((sr) => {
+            if (sr.type === "box" && !sr.boxes) {
+                return { ...sr, boxes: [sr.capacity || 12] };
+            }
+            return { ...sr };
+        });
     }
     _startDelete(cabinet) {
         this._mode = "delete-confirm";
@@ -4884,22 +4892,65 @@ let RackSettingsDialog = class RackSettingsDialog extends i {
 
           <!-- Visual grid preview -->
           <div class="grid-preview">
-            ${Array.from({ length: numRows }, (_, row) => {
-            const isStorage = this._isStorageRow(row);
-            const sr = this._getStorageRow(row);
-            const typeIcon = sr?.type === "box" ? "📦" : "◇";
-            return b `
-                <div class="grid-preview-row ${isStorage ? "storage" : ""}">
-                  <span class="grid-preview-label">R${row + 1}</span>
-                  ${isStorage
-                ? b `<div class="grid-preview-cell"></div><span class="grid-preview-storage-label">${typeIcon} ${sr?.name || "Storage"}</span>`
-                : Array.from({ length: Math.min(numCols, 15) }, () => b `<div class="grid-preview-cell"></div>`)}
-                  ${!isStorage && numCols > 15
-                ? b `<span style="font-size:0.65em;color:var(--wc-text-secondary)">+${numCols - 15}</span>`
-                : A}
-                </div>
-              `;
-        })}
+            ${this._editCabinet.orientation === "horizontal"
+            ? b `
+                  <!-- Horizontal: transpose grid (cols become visual rows) -->
+                  ${(() => {
+                const gridRows = [];
+                const storageRowNums = [];
+                for (let r = 0; r < numRows; r++) {
+                    if (this._isStorageRow(r))
+                        storageRowNums.push(r);
+                    else
+                        gridRows.push(r);
+                }
+                const gridCols = Math.min(numCols, 15);
+                return b `
+                      ${Array.from({ length: gridCols }, (_, col) => b `
+                        <div class="grid-preview-row">
+                          <span class="grid-preview-label">C${col + 1}</span>
+                          ${gridRows.map(() => b `<div class="grid-preview-cell"></div>`)}
+                          ${gridRows.length > 15
+                    ? b `<span style="font-size:0.65em;color:var(--wc-text-secondary)">+${gridRows.length - 15}</span>`
+                    : A}
+                        </div>
+                      `)}
+                      ${numCols > 15
+                    ? b `<div style="font-size:0.6em;color:var(--wc-text-secondary);text-align:center;padding:2px;">+${numCols - 15} more columns</div>`
+                    : A}
+                      ${storageRowNums.map((row) => {
+                    const sr = this._getStorageRow(row);
+                    const typeIcon = sr?.type === "box" ? "📦" : "◇";
+                    return b `
+                          <div class="grid-preview-row storage">
+                            <span class="grid-preview-label">R${row + 1}</span>
+                            <div class="grid-preview-cell"></div>
+                            <span class="grid-preview-storage-label">${typeIcon} ${sr?.name || "Storage"}</span>
+                          </div>
+                        `;
+                })}
+                    `;
+            })()}
+                `
+            : b `
+                  <!-- Vertical: standard grid -->
+                  ${Array.from({ length: numRows }, (_, row) => {
+                const isStorage = this._isStorageRow(row);
+                const sr = this._getStorageRow(row);
+                const typeIcon = sr?.type === "box" ? "📦" : "◇";
+                return b `
+                      <div class="grid-preview-row ${isStorage ? "storage" : ""}">
+                        <span class="grid-preview-label">R${row + 1}</span>
+                        ${isStorage
+                    ? b `<div class="grid-preview-cell"></div><span class="grid-preview-storage-label">${typeIcon} ${sr?.name || "Storage"}</span>`
+                    : Array.from({ length: Math.min(numCols, 15) }, () => b `<div class="grid-preview-cell"></div>`)}
+                        ${!isStorage && numCols > 15
+                    ? b `<span style="font-size:0.65em;color:var(--wc-text-secondary)">+${numCols - 15}</span>`
+                    : A}
+                      </div>
+                    `;
+            })}
+                `}
           </div>
 
           <!-- Row list with type selectors -->
