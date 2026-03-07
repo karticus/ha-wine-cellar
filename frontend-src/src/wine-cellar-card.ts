@@ -1081,7 +1081,7 @@ export class WineCellarCard extends LitElement {
                           Your buy list is empty
                         </div>
                         <div style="font-size: 0.9em">
-                          Tap "+ Buy List" or use 🛒 Buy in the wine list scanner
+                          Use 🛒 Buy List in Add Wine, or 🛒 Buy in the list scanner
                         </div>
                       </div>
                     `

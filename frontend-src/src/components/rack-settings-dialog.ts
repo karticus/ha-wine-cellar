@@ -674,19 +674,23 @@ export class RackSettingsDialog extends LitElement {
     const idx = sorted.findIndex((c) => c.id === cabinet.id);
     if (idx <= 0) return;
     const prev = sorted[idx - 1];
-    await Promise.all([
-      this.hass.callWS({
-        type: "wine_cellar/update_cabinet",
-        cabinet_id: cabinet.id,
-        updates: { order: prev.order },
-      }),
-      this.hass.callWS({
-        type: "wine_cellar/update_cabinet",
-        cabinet_id: prev.id,
-        updates: { order: cabinet.order },
-      }),
-    ]);
-    this._notifyUpdate();
+    try {
+      await Promise.all([
+        this.hass.callWS({
+          type: "wine_cellar/update_cabinet",
+          cabinet_id: cabinet.id,
+          updates: { order: prev.order },
+        }),
+        this.hass.callWS({
+          type: "wine_cellar/update_cabinet",
+          cabinet_id: prev.id,
+          updates: { order: cabinet.order },
+        }),
+      ]);
+      this._notifyUpdate();
+    } catch {
+      this._error = "Failed to reorder racks.";
+    }
   }
 
   private async _moveDown(cabinet: Cabinet) {
@@ -694,19 +698,23 @@ export class RackSettingsDialog extends LitElement {
     const idx = sorted.findIndex((c) => c.id === cabinet.id);
     if (idx < 0 || idx >= sorted.length - 1) return;
     const next = sorted[idx + 1];
-    await Promise.all([
-      this.hass.callWS({
-        type: "wine_cellar/update_cabinet",
-        cabinet_id: cabinet.id,
-        updates: { order: next.order },
-      }),
-      this.hass.callWS({
-        type: "wine_cellar/update_cabinet",
-        cabinet_id: next.id,
-        updates: { order: cabinet.order },
-      }),
-    ]);
-    this._notifyUpdate();
+    try {
+      await Promise.all([
+        this.hass.callWS({
+          type: "wine_cellar/update_cabinet",
+          cabinet_id: cabinet.id,
+          updates: { order: next.order },
+        }),
+        this.hass.callWS({
+          type: "wine_cellar/update_cabinet",
+          cabinet_id: next.id,
+          updates: { order: cabinet.order },
+        }),
+      ]);
+      this._notifyUpdate();
+    } catch {
+      this._error = "Failed to reorder racks.";
+    }
   }
 
   private _renderList() {

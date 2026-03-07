@@ -3552,10 +3552,9 @@ let AddWineDialog = class AddWineDialog extends i {
           <div class="form-group">
             <label>Type</label>
             <select
-              .value=${this._wineData.type || "red"}
               @change=${(e) => this._updateField("type", e.target.value)}
             >
-              ${Object.entries(WINE_TYPE_LABELS).map(([value, label]) => b `<option value=${value}>${label}</option>`)}
+              ${Object.entries(WINE_TYPE_LABELS).map(([value, label]) => b `<option value=${value} ?selected=${(this._wineData.type || "red") === value}>${label}</option>`)}
             </select>
           </div>
           <div class="form-group">
@@ -4599,19 +4598,24 @@ let RackSettingsDialog = class RackSettingsDialog extends i {
         if (idx <= 0)
             return;
         const prev = sorted[idx - 1];
-        await Promise.all([
-            this.hass.callWS({
-                type: "wine_cellar/update_cabinet",
-                cabinet_id: cabinet.id,
-                updates: { order: prev.order },
-            }),
-            this.hass.callWS({
-                type: "wine_cellar/update_cabinet",
-                cabinet_id: prev.id,
-                updates: { order: cabinet.order },
-            }),
-        ]);
-        this._notifyUpdate();
+        try {
+            await Promise.all([
+                this.hass.callWS({
+                    type: "wine_cellar/update_cabinet",
+                    cabinet_id: cabinet.id,
+                    updates: { order: prev.order },
+                }),
+                this.hass.callWS({
+                    type: "wine_cellar/update_cabinet",
+                    cabinet_id: prev.id,
+                    updates: { order: cabinet.order },
+                }),
+            ]);
+            this._notifyUpdate();
+        }
+        catch {
+            this._error = "Failed to reorder racks.";
+        }
     }
     async _moveDown(cabinet) {
         const sorted = [...this.cabinets].sort((a, b) => a.order - b.order);
@@ -4619,19 +4623,24 @@ let RackSettingsDialog = class RackSettingsDialog extends i {
         if (idx < 0 || idx >= sorted.length - 1)
             return;
         const next = sorted[idx + 1];
-        await Promise.all([
-            this.hass.callWS({
-                type: "wine_cellar/update_cabinet",
-                cabinet_id: cabinet.id,
-                updates: { order: next.order },
-            }),
-            this.hass.callWS({
-                type: "wine_cellar/update_cabinet",
-                cabinet_id: next.id,
-                updates: { order: cabinet.order },
-            }),
-        ]);
-        this._notifyUpdate();
+        try {
+            await Promise.all([
+                this.hass.callWS({
+                    type: "wine_cellar/update_cabinet",
+                    cabinet_id: cabinet.id,
+                    updates: { order: next.order },
+                }),
+                this.hass.callWS({
+                    type: "wine_cellar/update_cabinet",
+                    cabinet_id: next.id,
+                    updates: { order: cabinet.order },
+                }),
+            ]);
+            this._notifyUpdate();
+        }
+        catch {
+            this._error = "Failed to reorder racks.";
+        }
     }
     _renderList() {
         const sorted = [...this.cabinets].sort((a, b) => a.order - b.order);
@@ -6990,7 +6999,7 @@ let WineCellarCard = class WineCellarCard extends i {
                           Your buy list is empty
                         </div>
                         <div style="font-size: 0.9em">
-                          Tap "+ Buy List" or use 🛒 Buy in the wine list scanner
+                          Use 🛒 Buy List in Add Wine, or 🛒 Buy in the list scanner
                         </div>
                       </div>
                     `

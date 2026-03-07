@@ -906,13 +906,12 @@ export class AddWineDialog extends LitElement {
           <div class="form-group">
             <label>Type</label>
             <select
-              .value=${this._wineData.type || "red"}
               @change=${(e: Event) =>
                 this._updateField("type", (e.target as HTMLSelectElement).value)}
             >
               ${(Object.entries(WINE_TYPE_LABELS) as [WineType, string][]).map(
                 ([value, label]) =>
-                  html`<option value=${value}>${label}</option>`
+                  html`<option value=${value} ?selected=${(this._wineData.type || "red") === value}>${label}</option>`
               )}
             </select>
           </div>
