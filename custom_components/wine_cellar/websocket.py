@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime, timezone
 from typing import Any
 
 import voluptuous as vol
@@ -143,6 +144,9 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_update_buy_list_item)
     websocket_api.async_register_command(hass, ws_remove_from_buy_list)
     websocket_api.async_register_command(hass, ws_move_to_cellar)
+    websocket_api.async_register_command(hass, ws_get_backup)
+    websocket_api.async_register_command(hass, ws_restore_backup)
+    websocket_api.async_register_command(hass, ws_import_wines)
 
 
 @websocket_api.websocket_command({vol.Required("type"): "wine_cellar/get_wines"})
@@ -1095,3 +1099,81 @@ async def ws_move_to_cellar(
     await storage.async_save()
     hass.bus.async_fire(f"{DOMAIN}_updated")
     connection.send_result(msg["id"], {"wine": wine})
+
+
+# ── Backup / Restore / Import ────────────────────────────────────────
+
+
+@websocket_api.websocket_command({vol.Required("type"): "wine_cellar/get_backup"})
+@callback
+def ws_get_backup(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Return a full backup of all cellar data."""
+    storage = hass.data[DOMAIN]["storage"]
+    backup = storage.get_backup_data()
+    backup["version"] = "1.0"
+    backup["timestamp"] = datetime.now(timezone.utc).isoformat()
+    connection.send_result(msg["id"], backup)
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "wine_cellar/restore_backup",
+        vol.Required("backup"): dict,
+    }
+)
+@websocket_api.async_response
+async def ws_restore_backup(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Restore cellar data from a backup JSON."""
+    storage = hass.data[DOMAIN]["storage"]
+    backup = msg["backup"]
+
+    wines = backup.get("wines", [])
+    cabinets = backup.get("cabinets", [])
+    buy_list = backup.get("buy_list", [])
+
+    if not isinstance(wines, list) or not isinstance(cabinets, list):
+        connection.send_result(
+            msg["id"],
+            {"error": "Invalid backup format: wines and cabinets must be arrays."},
+        )
+        return
+
+    counts = storage.restore_data(wines, cabinets, buy_list)
+    await storage.async_save()
+    hass.bus.async_fire(f"{DOMAIN}_updated")
+
+    _LOGGER.info(
+        "Backup restored: %d wines, %d cabinets, %d buy list items",
+        counts["wines"], counts["cabinets"], counts["buy_list"],
+    )
+    connection.send_result(msg["id"], {"success": True, **counts})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "wine_cellar/import_wines",
+        vol.Required("wines"): list,
+    }
+)
+@websocket_api.async_response
+async def ws_import_wines(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Batch import wines (each gets a new UUID)."""
+    storage = hass.data[DOMAIN]["storage"]
+    count = storage.import_wines(msg["wines"])
+    await storage.async_save()
+    hass.bus.async_fire(f"{DOMAIN}_updated")
+
+    _LOGGER.info("Imported %d wines", count)
+    connection.send_result(msg["id"], {"imported": count})

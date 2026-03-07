@@ -320,3 +320,37 @@ class WineCellarStorage:
                         item[key] = value
                 return item
         return None
+
+    # ── Backup / Restore ─────────────────────────────────────────────
+
+    def get_backup_data(self) -> dict[str, Any]:
+        """Return a complete backup of all cellar data."""
+        return {
+            CONF_WINES: list(self.wines),
+            CONF_CABINETS: list(self.cabinets),
+            CONF_BUY_LIST: list(self.buy_list),
+        }
+
+    def restore_data(
+        self,
+        wines: list[dict[str, Any]],
+        cabinets: list[dict[str, Any]],
+        buy_list: list[dict[str, Any]],
+    ) -> dict[str, int]:
+        """Replace all cellar data with backup data. Returns counts."""
+        self._data[CONF_WINES] = wines
+        self._data[CONF_CABINETS] = cabinets
+        self._data[CONF_BUY_LIST] = buy_list
+        return {
+            "wines": len(wines),
+            "cabinets": len(cabinets),
+            "buy_list": len(buy_list),
+        }
+
+    def import_wines(self, wines_data: list[dict[str, Any]]) -> int:
+        """Batch-add wines (each gets a new UUID). Returns count added."""
+        count = 0
+        for wd in wines_data:
+            self.add_wine(wd)
+            count += 1
+        return count

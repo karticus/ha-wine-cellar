@@ -63,7 +63,8 @@ Wine analysis rules:
   - NV wines: "Drink Now" with drink_window "{current_year}-{next_year}"
 - "description": Professional tasting-style description of this wine's character
 - "estimated_price": estimated current US retail price as a number (e.g. 45.00). Use null only if truly unknown.
-- Rating fields (rating_ws, rating_rp, rating_jd, rating_ag): critic scores out of 100 if known. Use null if unknown. Do NOT fabricate.
+- Rating fields (rating_ws, rating_rp, rating_jd, rating_ag): If you know published critic scores, use those. Otherwise, provide your best estimated score (integer 85-100) based on the producer's reputation, region, and vintage quality. Only use null for obscure wines you truly cannot assess.
+  - rating_ws = Wine Spectator, rating_rp = Robert Parker, rating_jd = Jeb Dunnuck, rating_ag = Antonio Galloni
 - "notes": brief info from the label itself (appellation, classification, etc.)"""
 
 
@@ -125,7 +126,8 @@ Wine analysis rules (apply to every wine):
   - Rosé: 1-2 years. Most whites: 1-3 years. Sparkling NV: 2-3 years.
   - NV wines: "{current_year}-{next_year}"
 - "description": Professional 2-3 sentence tasting-style description of this wine's character
-- Rating fields (rating_ws, rating_rp, rating_jd, rating_ag): critic scores out of 100 if known. Use null if unknown. Do NOT fabricate."""
+- Rating fields (rating_ws, rating_rp, rating_jd, rating_ag): If you know published critic scores, use those. Otherwise, provide your best estimated score (integer 85-100) based on the producer's reputation, region, and vintage quality. Only use null for obscure wines you truly cannot assess.
+  - rating_ws = Wine Spectator, rating_rp = Robert Parker, rating_jd = Jeb Dunnuck, rating_ag = Antonio Galloni"""
 
 
 class GeminiVisionClient:
@@ -559,14 +561,12 @@ Rules:
   - If the wine is already past its typical aging window, mark as "Past Peak" or "Drink Now" (not "Hold")
   - When in doubt, err on the side of drinking sooner rather than later
 - "description": Write a professional tasting-style description of what this wine is known for. If you know the wine, describe its character. If not, describe what to expect based on grape, region, and vintage.
-- Rating fields: If you know or can reliably estimate ratings for this specific wine and vintage from major critics, provide them as numbers (e.g. 92). Use null if unknown.
+- Rating fields: If you know published critic scores for this specific wine and vintage, use those. Otherwise, provide your best estimated score (integer 85-100) based on the producer's track record, region quality, and vintage reputation. Only use null for obscure wines you truly cannot assess.
   - "rating_ws": Wine Spectator score (out of 100)
   - "rating_rp": Robert Parker / Wine Advocate score (out of 100)
-  - "rating_jd": James Suckling / Jeb Dunnuck score (out of 100)
+  - "rating_jd": Jeb Dunnuck score (out of 100)
   - "rating_ag": Antonio Galloni / Vinous score (out of 100)
-- "estimated_price": estimated current retail price in USD as a number (e.g. 45.00). Use your knowledge of the wine market to estimate what this bottle currently sells for. Return null only if you truly cannot estimate.
-- Only provide ratings you are reasonably confident about. Use null for wines you cannot rate with confidence.
-- Do NOT fabricate ratings. Better to return null than guess."""
+- "estimated_price": estimated current retail price in USD as a number (e.g. 45.00). Use your knowledge of the wine market to estimate what this bottle currently sells for. Return null only if you truly cannot estimate."""
 
         session = async_get_clientsession(self._hass)
 

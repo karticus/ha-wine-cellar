@@ -6231,6 +6231,12 @@ let InventoryDialog = class InventoryDialog extends i {
         this._sortDir = "asc";
         this._detailWine = null;
         this._showDetail = false;
+        this._backingUp = false;
+        this._importing = false;
+        this._restoring = false;
+        this._confirmRestore = false;
+        this._restoreData = null;
+        this._statusMsg = "";
     }
     updated(changedProps) {
         if (changedProps.has("open") && this.open) {
@@ -6240,6 +6246,9 @@ let InventoryDialog = class InventoryDialog extends i {
             this._sortDir = "asc";
             this._showDetail = false;
             this._detailWine = null;
+            this._statusMsg = "";
+            this._confirmRestore = false;
+            this._restoreData = null;
         }
     }
     _close() {
@@ -6306,35 +6315,16 @@ let InventoryDialog = class InventoryDialog extends i {
         }
         return { count, totalValue, byType };
     }
+    // ── Export CSV ─────────────────────────────────────────────────
     _exportCSV() {
         const wines = this._getFilteredAndSortedWines();
         const headers = [
-            "Name",
-            "Winery",
-            "Vintage",
-            "Type",
-            "Region",
-            "Country",
-            "Grape Variety",
-            "Rating",
-            "Ratings Count",
-            "Purchase Price",
-            "Retail Price",
-            "Purchase Date",
-            "Drink By",
-            "Drink Window",
-            "Disposition",
-            "Notes",
-            "Description",
-            "Food Pairings",
-            "Alcohol",
-            "Cabinet",
-            "Row",
-            "Col",
-            "Zone",
-            "Depth",
-            "User Rating",
-            "Added At",
+            "Name", "Winery", "Vintage", "Type", "Region", "Country",
+            "Grape Variety", "Rating", "Ratings Count", "Purchase Price",
+            "Retail Price", "Purchase Date", "Drink By", "Drink Window",
+            "Disposition", "Notes", "Description", "Food Pairings",
+            "Alcohol", "Cabinet", "Row", "Col", "Zone", "Depth",
+            "User Rating", "Added At",
         ];
         const escapeCSV = (val) => {
             if (val === null || val === undefined)
@@ -6346,41 +6336,251 @@ let InventoryDialog = class InventoryDialog extends i {
             return str;
         };
         const rows = wines.map((w) => [
-            w.name,
-            w.winery,
-            w.vintage,
-            w.type,
-            w.region,
-            w.country,
-            w.grape_variety,
-            w.rating,
-            w.ratings_count,
-            w.price,
-            w.retail_price,
-            w.purchase_date,
-            w.drink_by,
-            w.drink_window,
-            w.disposition,
-            w.notes,
-            w.description,
-            w.food_pairings,
+            w.name, w.winery, w.vintage, w.type, w.region, w.country,
+            w.grape_variety, w.rating, w.ratings_count, w.price,
+            w.retail_price, w.purchase_date, w.drink_by, w.drink_window,
+            w.disposition, w.notes, w.description, w.food_pairings,
             w.alcohol,
             this.cabinets.find((c) => c.id === w.cabinet_id)?.name || "",
             w.row !== null ? w.row + 1 : "",
             w.col !== null ? w.col + 1 : "",
-            w.zone,
-            w.depth,
-            w.user_rating,
-            w.added_at,
+            w.zone, w.depth, w.user_rating, w.added_at,
         ]
             .map(escapeCSV)
             .join(","));
         const csv = [headers.join(","), ...rows].join("\n");
-        const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+        this._downloadFile(csv, `wine-cellar-inventory-${new Date().toISOString().slice(0, 10)}.csv`, "text/csv;charset=utf-8;");
+    }
+    // ── Backup JSON ───────────────────────────────────────────────
+    async _backupJSON() {
+        this._backingUp = true;
+        this._statusMsg = "";
+        try {
+            const result = await this.hass.callWS({ type: "wine_cellar/get_backup" });
+            const json = JSON.stringify(result, null, 2);
+            this._downloadFile(json, `wine-cellar-backup-${new Date().toISOString().slice(0, 10)}.json`, "application/json");
+            this._statusMsg = `Backup saved — ${result.wines?.length || 0} wines, ${result.cabinets?.length || 0} racks, ${result.buy_list?.length || 0} buy list`;
+        }
+        catch (err) {
+            this._statusMsg = `Backup failed: ${err.message || err}`;
+        }
+        this._backingUp = false;
+    }
+    // ── Import CSV ────────────────────────────────────────────────
+    _triggerImportCSV() {
+        const input = this.shadowRoot?.querySelector("#inv-csv-input");
+        if (input) {
+            input.value = "";
+            input.click();
+        }
+    }
+    async _handleImportCSV(e) {
+        const file = e.target.files?.[0];
+        if (!file)
+            return;
+        this._importing = true;
+        this._statusMsg = "";
+        try {
+            const text = await file.text();
+            const wines = this._parseCSV(text);
+            if (wines.length === 0) {
+                this._statusMsg = "No wines found in CSV file.";
+                this._importing = false;
+                return;
+            }
+            const result = await this.hass.callWS({
+                type: "wine_cellar/import_wines",
+                wines,
+            });
+            this._statusMsg = `Imported ${result.imported} wines successfully!`;
+            this.dispatchEvent(new CustomEvent("wine-updated", { bubbles: true, composed: true }));
+        }
+        catch (err) {
+            this._statusMsg = `Import failed: ${err.message || err}`;
+        }
+        this._importing = false;
+    }
+    _parseCSV(text) {
+        const lines = text.split("\n").filter((l) => l.trim());
+        if (lines.length < 2)
+            return [];
+        // Parse header row
+        const headers = this._parseCSVRow(lines[0]).map((h) => h.trim().toLowerCase());
+        // Map CSV headers to wine fields
+        const fieldMap = {
+            name: "name",
+            winery: "winery",
+            vintage: "vintage",
+            type: "type",
+            region: "region",
+            country: "country",
+            "grape variety": "grape_variety",
+            grape_variety: "grape_variety",
+            rating: "rating",
+            "ratings count": "ratings_count",
+            ratings_count: "ratings_count",
+            "purchase price": "price",
+            price: "price",
+            "retail price": "retail_price",
+            retail_price: "retail_price",
+            "purchase date": "purchase_date",
+            purchase_date: "purchase_date",
+            "drink by": "drink_by",
+            drink_by: "drink_by",
+            "drink window": "drink_window",
+            drink_window: "drink_window",
+            disposition: "disposition",
+            notes: "notes",
+            description: "description",
+            "food pairings": "food_pairings",
+            food_pairings: "food_pairings",
+            alcohol: "alcohol",
+            zone: "zone",
+            "user rating": "user_rating",
+            user_rating: "user_rating",
+            barcode: "barcode",
+        };
+        const numericFields = new Set([
+            "vintage", "rating", "ratings_count", "price",
+            "retail_price", "user_rating",
+        ]);
+        const wines = [];
+        for (let i = 1; i < lines.length; i++) {
+            const values = this._parseCSVRow(lines[i]);
+            if (values.length === 0)
+                continue;
+            const wine = {};
+            for (let j = 0; j < headers.length && j < values.length; j++) {
+                const field = fieldMap[headers[j]];
+                if (!field)
+                    continue;
+                let val = values[j].trim();
+                if (!val)
+                    continue;
+                if (numericFields.has(field)) {
+                    const num = parseFloat(val);
+                    if (!isNaN(num))
+                        val = num;
+                    else
+                        continue;
+                }
+                wine[field] = val;
+            }
+            // Validate wine type
+            if (wine.type) {
+                const validTypes = ["red", "white", "rosé", "sparkling", "dessert"];
+                const lt = wine.type.toLowerCase();
+                if (validTypes.includes(lt)) {
+                    wine.type = lt;
+                }
+                else {
+                    wine.type = "red";
+                }
+            }
+            if (wine.name) {
+                wines.push(wine);
+            }
+        }
+        return wines;
+    }
+    _parseCSVRow(line) {
+        const result = [];
+        let current = "";
+        let inQuotes = false;
+        for (let i = 0; i < line.length; i++) {
+            const ch = line[i];
+            if (inQuotes) {
+                if (ch === '"') {
+                    if (i + 1 < line.length && line[i + 1] === '"') {
+                        current += '"';
+                        i++;
+                    }
+                    else {
+                        inQuotes = false;
+                    }
+                }
+                else {
+                    current += ch;
+                }
+            }
+            else {
+                if (ch === '"') {
+                    inQuotes = true;
+                }
+                else if (ch === ",") {
+                    result.push(current);
+                    current = "";
+                }
+                else {
+                    current += ch;
+                }
+            }
+        }
+        result.push(current);
+        return result;
+    }
+    // ── Restore JSON ──────────────────────────────────────────────
+    _triggerRestore() {
+        const input = this.shadowRoot?.querySelector("#inv-json-input");
+        if (input) {
+            input.value = "";
+            input.click();
+        }
+    }
+    async _handleRestoreFile(e) {
+        const file = e.target.files?.[0];
+        if (!file)
+            return;
+        try {
+            const text = await file.text();
+            const data = JSON.parse(text);
+            if (!data.wines || !Array.isArray(data.wines)) {
+                this._statusMsg = "Invalid backup file: missing wines array.";
+                return;
+            }
+            if (!data.cabinets || !Array.isArray(data.cabinets)) {
+                this._statusMsg = "Invalid backup file: missing cabinets array.";
+                return;
+            }
+            this._restoreData = data;
+            this._confirmRestore = true;
+        }
+        catch (err) {
+            this._statusMsg = `Invalid JSON file: ${err.message || err}`;
+        }
+    }
+    async _executeRestore() {
+        if (!this._restoreData)
+            return;
+        this._confirmRestore = false;
+        this._restoring = true;
+        this._statusMsg = "";
+        try {
+            const result = await this.hass.callWS({
+                type: "wine_cellar/restore_backup",
+                backup: this._restoreData,
+            });
+            if (result.error) {
+                this._statusMsg = `Restore failed: ${result.error}`;
+            }
+            else {
+                this._statusMsg = `Restored ${result.wines} wines, ${result.cabinets} racks, ${result.buy_list} buy list items!`;
+                this.dispatchEvent(new CustomEvent("wine-updated", { bubbles: true, composed: true }));
+            }
+        }
+        catch (err) {
+            this._statusMsg = `Restore failed: ${err.message || err}`;
+        }
+        this._restoring = false;
+        this._restoreData = null;
+    }
+    // ── Helpers ───────────────────────────────────────────────────
+    _downloadFile(content, filename, mimeType) {
+        const blob = new Blob([content], { type: mimeType });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = `wine-cellar-inventory-${new Date().toISOString().slice(0, 10)}.csv`;
+        a.download = filename;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -6467,9 +6667,10 @@ let InventoryDialog = class InventoryDialog extends i {
             { id: "sparkling", label: "Sparkling" },
             { id: "dessert", label: "Dessert" },
         ];
+        const busy = this._importing || this._restoring || this._backingUp;
         return b `
       <div class="dialog-overlay" @click=${this._close}>
-        <div class="dialog" style="max-width:800px" @click=${(e) => e.stopPropagation()}>
+        <div class="dialog" style="max-width:800px;position:relative" @click=${(e) => e.stopPropagation()}>
           <!-- Header -->
           <div class="inv-header">
             <span class="inv-header-title">📦 Inventory</span>
@@ -6566,14 +6767,91 @@ let InventoryDialog = class InventoryDialog extends i {
             ? `${filteredWines.length} wines`
             : `${filteredWines.length} of ${this.wines.length} wines`}
             </span>
-            <button
-              class="btn btn-primary"
-              style="font-size:0.8em;padding:6px 14px;background:#2e7d32"
-              @click=${this._exportCSV}
-            >
-              📥 Export CSV
-            </button>
+            <div class="inv-footer-btns">
+              <button
+                class="inv-btn"
+                @click=${this._triggerImportCSV}
+                ?disabled=${busy}
+                title="Import wines from a CSV file"
+              >
+                ${this._importing ? "Importing…" : "📄 Import CSV"}
+              </button>
+              <button
+                class="inv-btn"
+                @click=${this._backupJSON}
+                ?disabled=${busy}
+                title="Download full cellar backup as JSON"
+              >
+                ${this._backingUp ? "Saving…" : "💾 Backup"}
+              </button>
+              <button
+                class="inv-btn"
+                @click=${this._triggerRestore}
+                ?disabled=${busy}
+                title="Restore cellar from a JSON backup"
+              >
+                ${this._restoring ? "Restoring…" : "🔄 Restore"}
+              </button>
+              <button
+                class="inv-btn inv-btn-primary"
+                @click=${this._exportCSV}
+                ?disabled=${busy}
+              >
+                📥 Export CSV
+              </button>
+            </div>
+            ${this._statusMsg
+            ? b `<div class="inv-status">${this._statusMsg}</div>`
+            : A}
           </div>
+
+          <!-- Hidden file inputs -->
+          <input
+            type="file"
+            id="inv-csv-input"
+            accept=".csv"
+            style="display:none"
+            @change=${this._handleImportCSV}
+          />
+          <input
+            type="file"
+            id="inv-json-input"
+            accept=".json"
+            style="display:none"
+            @change=${this._handleRestoreFile}
+          />
+
+          <!-- Restore Confirmation Overlay -->
+          ${this._confirmRestore && this._restoreData
+            ? b `
+                <div class="inv-confirm-overlay" @click=${() => (this._confirmRestore = false)}>
+                  <div class="inv-confirm-box" @click=${(e) => e.stopPropagation()}>
+                    <h3>🔄 Restore Backup?</h3>
+                    <p>
+                      This will <strong>replace</strong> all your current cellar data with the backup.
+                      This action cannot be undone.
+                    </p>
+                    <div class="inv-confirm-stats">
+                      Backup contains:<br />
+                      <strong>${this._restoreData.wines?.length || 0}</strong> wines ·
+                      <strong>${this._restoreData.cabinets?.length || 0}</strong> racks ·
+                      <strong>${this._restoreData.buy_list?.length || 0}</strong> buy list items
+                      ${this._restoreData.timestamp
+                ? b `<br /><small>Created: ${new Date(this._restoreData.timestamp).toLocaleString()}</small>`
+                : A}
+                    </div>
+                    <div class="inv-confirm-btns">
+                      <button class="inv-confirm-cancel" @click=${() => (this._confirmRestore = false)}>
+                        Cancel
+                      </button>
+                      <button class="inv-confirm-go" @click=${this._executeRestore}>
+                        Restore Now
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              `
+            : A}
         </div>
       </div>
 
@@ -6842,11 +7120,127 @@ InventoryDialog.styles = [
         border-top: 1px solid var(--wc-border);
         justify-content: space-between;
         align-items: center;
+        flex-wrap: wrap;
       }
 
       .inv-count {
         font-size: 0.8em;
         color: var(--wc-text-secondary);
+      }
+
+      .inv-footer-btns {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+
+      .inv-btn {
+        font-size: 0.76em;
+        padding: 5px 12px;
+        border-radius: 16px;
+        border: 1px solid var(--wc-border);
+        background: transparent;
+        color: var(--wc-text-secondary);
+        cursor: pointer;
+        white-space: nowrap;
+        transition: all 0.15s;
+      }
+
+      .inv-btn:hover {
+        background: var(--wc-hover);
+        border-color: var(--wc-text-secondary);
+      }
+
+      .inv-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      .inv-btn-primary {
+        background: #2e7d32;
+        color: #fff;
+        border-color: #2e7d32;
+      }
+
+      .inv-btn-primary:hover {
+        background: #256d29;
+      }
+
+      .inv-status {
+        width: 100%;
+        text-align: center;
+        font-size: 0.78em;
+        padding: 4px 0 0;
+        color: #2e7d32;
+        font-weight: 500;
+      }
+
+      /* Restore confirm overlay */
+      .inv-confirm-overlay {
+        position: absolute;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.6);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10;
+        border-radius: 16px;
+      }
+
+      .inv-confirm-box {
+        background: var(--wc-card-bg, #fff);
+        border-radius: 12px;
+        padding: 24px;
+        max-width: 380px;
+        width: 90%;
+        text-align: center;
+      }
+
+      .inv-confirm-box h3 {
+        margin: 0 0 8px;
+        font-size: 1em;
+        color: var(--wc-text);
+      }
+
+      .inv-confirm-box p {
+        margin: 0 0 16px;
+        font-size: 0.85em;
+        color: var(--wc-text-secondary);
+        line-height: 1.4;
+      }
+
+      .inv-confirm-stats {
+        font-size: 0.82em;
+        color: var(--wc-text);
+        margin: 0 0 16px;
+        padding: 10px;
+        background: rgba(0, 0, 0, 0.05);
+        border-radius: 8px;
+      }
+
+      .inv-confirm-btns {
+        display: flex;
+        gap: 8px;
+        justify-content: center;
+      }
+
+      .inv-confirm-btns button {
+        padding: 8px 20px;
+        border-radius: 20px;
+        border: none;
+        font-size: 0.85em;
+        cursor: pointer;
+        font-weight: 500;
+      }
+
+      .inv-confirm-cancel {
+        background: var(--wc-hover);
+        color: var(--wc-text);
+      }
+
+      .inv-confirm-go {
+        background: #e65100;
+        color: #fff;
       }
 
       @media (max-width: 599px) {
@@ -6864,6 +7258,12 @@ InventoryDialog.styles = [
         }
         .inv-list {
           max-height: 60vh;
+        }
+        .inv-footer {
+          justify-content: center;
+        }
+        .inv-footer-btns {
+          justify-content: center;
         }
       }
     `,
@@ -6901,6 +7301,24 @@ __decorate([
 __decorate([
     r()
 ], InventoryDialog.prototype, "_showDetail", void 0);
+__decorate([
+    r()
+], InventoryDialog.prototype, "_backingUp", void 0);
+__decorate([
+    r()
+], InventoryDialog.prototype, "_importing", void 0);
+__decorate([
+    r()
+], InventoryDialog.prototype, "_restoring", void 0);
+__decorate([
+    r()
+], InventoryDialog.prototype, "_confirmRestore", void 0);
+__decorate([
+    r()
+], InventoryDialog.prototype, "_restoreData", void 0);
+__decorate([
+    r()
+], InventoryDialog.prototype, "_statusMsg", void 0);
 InventoryDialog = __decorate([
     t("inventory-dialog")
 ], InventoryDialog);
