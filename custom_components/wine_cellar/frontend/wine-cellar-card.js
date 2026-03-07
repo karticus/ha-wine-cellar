@@ -2614,6 +2614,7 @@ let AddWineDialog = class AddWineDialog extends i {
         this.preselectedRow = null;
         this.preselectedCol = null;
         this.preselectedZone = "";
+        this.buyListMode = false;
         this._step = "scan";
         this._scanMode = "idle";
         this._barcode = "";
@@ -2623,7 +2624,11 @@ let AddWineDialog = class AddWineDialog extends i {
         this._error = "";
         this._hasGemini = false;
         this._labelLoading = false;
-        this._steps = ["scan", "details", "location", "confirm"];
+    }
+    get _steps() {
+        return this.buyListMode
+            ? ["scan", "details", "confirm"]
+            : ["scan", "details", "location", "confirm"];
     }
     /** Resize a base64 JPEG to a small thumbnail for storage */
     _resizeImageForStorage(base64, maxDim = 200, quality = 0.6) {
@@ -2846,15 +2851,24 @@ let AddWineDialog = class AddWineDialog extends i {
     async _addWine() {
         this._loading = true;
         try {
-            await this.hass.callWS({
-                type: "wine_cellar/add_wine",
-                wine: this._wineData,
-            });
-            this.dispatchEvent(new CustomEvent("wine-added", { bubbles: true, composed: true }));
+            if (this.buyListMode) {
+                await this.hass.callWS({
+                    type: "wine_cellar/add_to_buy_list",
+                    wine: this._wineData,
+                });
+                this.dispatchEvent(new CustomEvent("buy-list-updated", { bubbles: true, composed: true }));
+            }
+            else {
+                await this.hass.callWS({
+                    type: "wine_cellar/add_wine",
+                    wine: this._wineData,
+                });
+                this.dispatchEvent(new CustomEvent("wine-added", { bubbles: true, composed: true }));
+            }
             this._close();
         }
         catch (err) {
-            this._error = "Failed to add wine.";
+            this._error = this.buyListMode ? "Failed to add to buy list." : "Failed to add wine.";
         }
         this._loading = false;
     }
@@ -3145,7 +3159,7 @@ let AddWineDialog = class AddWineDialog extends i {
         </button>
         <button
           class="btn btn-primary"
-          @click=${() => this._goToStep("location")}
+          @click=${() => this._goToStep(this.buyListMode ? "confirm" : "location")}
           ?disabled=${!this._wineData.name}
         >
           Next →
@@ -3246,14 +3260,18 @@ let AddWineDialog = class AddWineDialog extends i {
               ${WINE_TYPE_LABELS[this._wineData.type || "red"]}
             </span>
           </div>
-          <div class="summary-row">
-            <span class="summary-label">Cabinet</span>
-            <span class="summary-value">${cabinetName}</span>
-          </div>
-          <div class="summary-row">
-            <span class="summary-label">Position</span>
-            <span class="summary-value">${posLabel}</span>
-          </div>
+          ${this.buyListMode
+            ? A
+            : b `
+                <div class="summary-row">
+                  <span class="summary-label">Cabinet</span>
+                  <span class="summary-value">${cabinetName}</span>
+                </div>
+                <div class="summary-row">
+                  <span class="summary-label">Position</span>
+                  <span class="summary-value">${posLabel}</span>
+                </div>
+              `}
           ${this._wineData.user_rating
             ? b `
                 <div class="summary-row">
@@ -3270,13 +3288,13 @@ let AddWineDialog = class AddWineDialog extends i {
       </div>
 
       <div class="dialog-footer">
-        <button class="btn btn-outline" @click=${() => this._goToStep("location")}>
+        <button class="btn btn-outline" @click=${() => this._goToStep(this.buyListMode ? "details" : "location")}>
           ← Back
         </button>
         <button class="btn btn-primary" @click=${this._addWine}>
           ${this._loading
             ? b `<span class="loading-spinner"></span>`
-            : "Add Wine"}
+            : this.buyListMode ? "Add to Buy List" : "Add Wine"}
         </button>
       </div>
     `;
@@ -3287,7 +3305,7 @@ let AddWineDialog = class AddWineDialog extends i {
         return b `
       <div class="dialog-overlay" @click=${this._close}>
         <div class="dialog" @click=${(e) => e.stopPropagation()}>
-          <div class="dialog-header">Add Wine</div>
+          <div class="dialog-header">${this.buyListMode ? "Add to Buy List" : "Add Wine"}</div>
           ${this._renderStepIndicator()}
           ${this._step === "scan" ? this._renderScanStep() : A}
           ${this._step === "details" ? this._renderDetailsStep() : A}
@@ -3600,6 +3618,9 @@ __decorate([
 __decorate([
     n({ attribute: false })
 ], AddWineDialog.prototype, "preselectedZone", void 0);
+__decorate([
+    n({ type: Boolean })
+], AddWineDialog.prototype, "buyListMode", void 0);
 __decorate([
     r()
 ], AddWineDialog.prototype, "_step", void 0);
@@ -4472,6 +4493,7 @@ let WineListDialog = class WineListDialog extends i {
         this._expandedIndex = null;
         this._addedIndices = new Set();
         this._cancelEnrichment = false;
+        this._buyListIndices = new Set();
     }
     updated(changedProps) {
         if (changedProps.has("open") && this.open) {
@@ -4485,6 +4507,7 @@ let WineListDialog = class WineListDialog extends i {
             this._aiEnriching = false;
             this._expandedIndex = null;
             this._addedIndices = new Set();
+            this._buyListIndices = new Set();
             this._cancelEnrichment = false;
         }
     }
@@ -4650,6 +4673,36 @@ let WineListDialog = class WineListDialog extends i {
             console.error("Failed to add wine from list", err);
         }
     }
+    async _addToBuyList(wine) {
+        try {
+            await this.hass.callWS({
+                type: "wine_cellar/add_to_buy_list",
+                wine: {
+                    name: wine.name,
+                    winery: wine.winery,
+                    vintage: wine.vintage,
+                    type: wine.type,
+                    region: wine.region,
+                    country: wine.country,
+                    grape_variety: wine.grape_variety,
+                    rating: wine.vivino_rating,
+                    ratings_count: wine.vivino_ratings_count,
+                    image_url: wine.vivino_image_url,
+                    price: wine.list_price,
+                    retail_price: wine.vivino_price || wine.ai_estimated_price,
+                    description: wine.ai_description,
+                    ai_ratings: wine.ai_ratings,
+                    disposition: wine.ai_disposition,
+                    drink_window: wine.ai_drink_window,
+                },
+            });
+            this._buyListIndices = new Set([...this._buyListIndices, wine.index]);
+            this.dispatchEvent(new CustomEvent("buy-list-updated", { bubbles: true, composed: true }));
+        }
+        catch (err) {
+            console.error("Failed to add wine to buy list", err);
+        }
+    }
     _scanAnotherPage() {
         this._phase = "capture";
         this._error = "";
@@ -4779,6 +4832,13 @@ let WineListDialog = class WineListDialog extends i {
             @click=${() => !added && this._addToCellar(wine)}
           >
             ${added ? "\u2713" : "+ Add"}
+          </button>
+          <button
+            class="wl-buy-btn ${this._buyListIndices.has(wine.index) ? "added" : ""}"
+            ?disabled=${this._buyListIndices.has(wine.index)}
+            @click=${() => !this._buyListIndices.has(wine.index) && this._addToBuyList(wine)}
+          >
+            ${this._buyListIndices.has(wine.index) ? "\u2713" : "\uD83D\uDED2 Buy"}
           </button>
         </div>
       </div>
@@ -5183,6 +5243,25 @@ WineListDialog.styles = [
         cursor: default;
       }
 
+      .wl-buy-btn {
+        background: #e65100;
+        color: #fff;
+        border: none;
+        border-radius: 6px;
+        font-size: 0.75em;
+        padding: 4px 8px;
+        cursor: pointer;
+        white-space: nowrap;
+        margin-top: 4px;
+      }
+
+      .wl-buy-btn:hover { background: #bf360c; }
+
+      .wl-buy-btn.added {
+        background: #546e7a;
+        cursor: default;
+      }
+
       .footer-actions {
         display: flex;
         gap: 8px;
@@ -5240,6 +5319,9 @@ __decorate([
 __decorate([
     r()
 ], WineListDialog.prototype, "_cancelEnrichment", void 0);
+__decorate([
+    r()
+], WineListDialog.prototype, "_buyListIndices", void 0);
 WineListDialog = __decorate([
     t("wine-list-dialog")
 ], WineListDialog);
@@ -5266,6 +5348,9 @@ let WineCellarCard = class WineCellarCard extends i {
         this._toast = "";
         this._hasGemini = false;
         this._showWineList = false;
+        this._buyList = [];
+        this._addToBuyListMode = false;
+        this._movingBuyListItem = null;
     }
     setConfig(config) {
         this._config = config;
@@ -5291,16 +5376,18 @@ let WineCellarCard = class WineCellarCard extends i {
         }
         this._loading = true;
         try {
-            const [winesResult, cabinetsResult, statsResult, capResult] = await Promise.all([
+            const [winesResult, cabinetsResult, statsResult, capResult, buyListResult] = await Promise.all([
                 this.hass.callWS({ type: "wine_cellar/get_wines" }),
                 this.hass.callWS({ type: "wine_cellar/get_cabinets" }),
                 this.hass.callWS({ type: "wine_cellar/get_stats" }),
                 this.hass.callWS({ type: "wine_cellar/get_capabilities" }).catch(() => ({ has_gemini: false })),
+                this.hass.callWS({ type: "wine_cellar/get_buy_list" }).catch(() => ({ buy_list: [] })),
             ]);
             this._wines = winesResult.wines || [];
             this._cabinets = (cabinetsResult.cabinets || []).sort((a, b) => a.order - b.order);
             this._stats = statsResult;
             this._hasGemini = capResult?.has_gemini || false;
+            this._buyList = buyListResult?.buy_list || [];
             // Refresh selected wine if detail dialog is open
             if (this._selectedWine) {
                 const updated = this._wines.find((w) => w.id === this._selectedWine.id);
@@ -5352,6 +5439,11 @@ let WineCellarCard = class WineCellarCard extends i {
             this._executeMoveWine(cabinet.id, row, col, "");
             return;
         }
+        // If we're placing a buy list item, move it to cellar
+        if (this._movingBuyListItem && !wine) {
+            this._executeMoveTocellar(cabinet.id, row, col, "");
+            return;
+        }
         if (wine) {
             this._selectedWine = wine;
             this._showDetail = true;
@@ -5366,6 +5458,11 @@ let WineCellarCard = class WineCellarCard extends i {
         // If we're moving a wine, place it in this zone
         if (this._movingWine && !wine) {
             this._executeMoveWine(cabinet.id, null, null, zone || "bottom");
+            return;
+        }
+        // If we're placing a buy list item, move it to cellar
+        if (this._movingBuyListItem && !wine) {
+            this._executeMoveTocellar(cabinet.id, null, null, zone || "bottom");
             return;
         }
         if (wine) {
@@ -5529,6 +5626,47 @@ let WineCellarCard = class WineCellarCard extends i {
         }
         this._batchVivino = false;
     }
+    // --- Buy List ---
+    async _removeBuyListItem(itemId) {
+        try {
+            await this.hass.callWS({
+                type: "wine_cellar/remove_from_buy_list",
+                item_id: itemId,
+            });
+            this._showToast("Removed from buy list");
+            await this._loadData();
+        }
+        catch (err) {
+            console.error("Failed to remove from buy list", err);
+            this._showToast("Failed to remove from buy list");
+        }
+    }
+    _startMoveBuyListItem(item) {
+        this._movingBuyListItem = item;
+        this._activeTab = "all";
+        this._showToast(`Tap a cell to place "${item.name}"`);
+    }
+    async _executeMoveTocellar(cabinetId, row, col, zone) {
+        if (!this._movingBuyListItem)
+            return;
+        try {
+            await this.hass.callWS({
+                type: "wine_cellar/move_to_cellar",
+                item_id: this._movingBuyListItem.id,
+                cabinet_id: cabinetId,
+                row,
+                col,
+                zone,
+            });
+            this._showToast(`Moved "${this._movingBuyListItem.name}" to cellar`);
+            this._movingBuyListItem = null;
+            await this._loadData();
+        }
+        catch (err) {
+            console.error("Failed to move to cellar:", err);
+            this._showToast("Failed to move to cellar");
+        }
+    }
     async _onRemoveWine(e) {
         try {
             await this.hass.callWS({
@@ -5562,7 +5700,8 @@ let WineCellarCard = class WineCellarCard extends i {
         const title = this._config?.title || "Wine Cellar";
         const filteredWines = this._getFilteredWines();
         const isSearching = !!(this._searchQuery || this._searchFilter !== "all");
-        const showGrid = !isSearching && (this._activeTab === "all" || this._cabinets.some((c) => c.id === this._activeTab));
+        const showGrid = !isSearching && this._activeTab !== "buy-list" && (this._activeTab === "all" || this._cabinets.some((c) => c.id === this._activeTab));
+        const showBuyList = this._activeTab === "buy-list" && !isSearching;
         return b `
       <ha-card>
         <div class="header-row">
@@ -5610,6 +5749,13 @@ let WineCellarCard = class WineCellarCard extends i {
             </button>
             <button
               class="btn btn-primary"
+              style="background: #e65100;"
+              @click=${() => { this._addToBuyListMode = true; this._showAddDialog = true; }}
+            >
+              + Buy List
+            </button>
+            <button
+              class="btn btn-primary"
               @click=${() => {
             this._addPreselect = { cabinet: "", row: null, col: null, zone: "" };
             this._showAddDialog = true;
@@ -5636,6 +5782,16 @@ let WineCellarCard = class WineCellarCard extends i {
               <div class="copy-banner">
                 <span>📦 Moving "${this._movingWine.name}" — tap a cell to place it</span>
                 <button @click=${() => (this._movingWine = null)}>✕ Cancel</button>
+              </div>
+            `
+            : A}
+
+        <!-- Buy list move mode banner -->
+        ${this._movingBuyListItem
+            ? b `
+              <div class="buy-list-banner">
+                <span>🛒 Placing "${this._movingBuyListItem.name}" — tap a cell in your cellar</span>
+                <button @click=${() => (this._movingBuyListItem = null)}>✕ Cancel</button>
               </div>
             `
             : A}
@@ -5688,6 +5844,13 @@ let WineCellarCard = class WineCellarCard extends i {
                 (${this._getCabinetWines(cab.id).length})
               </button>
             `)}
+          <button
+            class="tab ${this._activeTab === "buy-list" ? "active" : ""}"
+            @click=${() => (this._activeTab = "buy-list")}
+            style="${this._activeTab === "buy-list" ? "border-color: #e65100; color: #e65100;" : ""}"
+          >
+            Buy List (${this._buyList.length})
+          </button>
         </div>
 
         <!-- Search bar -->
@@ -5721,6 +5884,64 @@ let WineCellarCard = class WineCellarCard extends i {
                             @zone-click=${this._onZoneClick}
                           ></cabinet-grid>
                         `)}
+              </div>
+            `
+            : A}
+
+        <!-- Buy List view -->
+        ${showBuyList
+            ? b `
+              <div class="buy-list-view">
+                ${this._buyList.length === 0
+                ? b `
+                      <div class="empty-state">
+                        <div class="empty-state-icon">🛒</div>
+                        <div style="font-weight: 500; margin-bottom: 4px">
+                          Your buy list is empty
+                        </div>
+                        <div style="font-size: 0.9em">
+                          Tap "+ Buy List" or use 🛒 Buy in the wine list scanner
+                        </div>
+                      </div>
+                    `
+                : this._buyList.map((item) => {
+                    const typeColor = item.type === "red" ? "#722F37"
+                        : item.type === "white" ? "#F5E6CA"
+                            : item.type === "rosé" ? "#E8A0BF"
+                                : item.type === "sparkling" ? "#D4E09B"
+                                    : "#DAA520";
+                    return b `
+                        <div class="buy-list-card">
+                          ${item.image_url
+                        ? b `<img class="wine-list-thumb" src="${item.image_url}" alt="" />`
+                        : b `<div class="wine-list-dot" style="background: ${typeColor}"></div>`}
+                          <div class="bl-info">
+                            <div class="bl-name">${item.name}</div>
+                            <div class="bl-meta">
+                              ${item.winery}${item.vintage ? ` · ${item.vintage}` : ""}
+                              ${item.rating ? ` · ★${item.rating.toFixed(1)}` : ""}
+                              ${item.retail_price ? ` · $${item.retail_price}` : ""}
+                            </div>
+                          </div>
+                          <div class="bl-actions">
+                            <button
+                              class="bl-cellar-btn"
+                              @click=${() => this._startMoveBuyListItem(item)}
+                              title="Move to cellar"
+                            >
+                              + Cellar
+                            </button>
+                            <button
+                              class="bl-remove-btn"
+                              @click=${() => this._removeBuyListItem(item.id)}
+                              title="Remove from buy list"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        </div>
+                      `;
+                })}
               </div>
             `
             : A}
@@ -5823,8 +6044,10 @@ let WineCellarCard = class WineCellarCard extends i {
           .preselectedRow=${this._addPreselect.row}
           .preselectedCol=${this._addPreselect.col}
           .preselectedZone=${this._addPreselect.zone}
-          @close=${() => (this._showAddDialog = false)}
+          .buyListMode=${this._addToBuyListMode}
+          @close=${() => { this._showAddDialog = false; this._addToBuyListMode = false; }}
           @wine-added=${this._onWineAdded}
+          @buy-list-updated=${() => this._loadData()}
         ></add-wine-dialog>
 
         <!-- Wine List Scanner Dialog -->
@@ -5833,6 +6056,7 @@ let WineCellarCard = class WineCellarCard extends i {
           .hass=${this.hass}
           @close=${() => (this._showWineList = false)}
           @wine-added=${this._onWineAdded}
+          @buy-list-updated=${() => this._loadData()}
         ></wine-list-dialog>
 
         <!-- Rack Settings Dialog -->
@@ -6010,6 +6234,98 @@ WineCellarCard.styles = [
         pointer-events: none;
       }
 
+      .buy-list-view {
+        padding: 0 16px 16px;
+      }
+
+      .buy-list-card {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 12px;
+        border: 1px solid var(--wc-border);
+        border-radius: 10px;
+        margin-bottom: 8px;
+        transition: background 0.2s;
+      }
+
+      .buy-list-card:hover {
+        background: rgba(255, 255, 255, 0.04);
+      }
+
+      .bl-info {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .bl-name {
+        font-weight: 600;
+        font-size: 0.9em;
+        color: var(--wc-text);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .bl-meta {
+        font-size: 0.78em;
+        color: var(--wc-text-secondary);
+        margin-top: 2px;
+      }
+
+      .bl-actions {
+        display: flex;
+        gap: 6px;
+        flex-shrink: 0;
+      }
+
+      .bl-cellar-btn {
+        background: #2e7d32;
+        color: #fff;
+        border: none;
+        border-radius: 6px;
+        font-size: 0.75em;
+        padding: 4px 8px;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+
+      .bl-cellar-btn:hover { background: #1b5e20; }
+
+      .bl-remove-btn {
+        background: #c62828;
+        color: #fff;
+        border: none;
+        border-radius: 6px;
+        font-size: 0.75em;
+        padding: 4px 8px;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+
+      .bl-remove-btn:hover { background: #b71c1c; }
+
+      .buy-list-banner {
+        background: rgba(230, 81, 0, 0.1);
+        border: 1px solid rgba(230, 81, 0, 0.3);
+        color: #e65100;
+        font-size: 0.85em;
+        padding: 6px 16px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .buy-list-banner button {
+        background: transparent;
+        border: 1px solid rgba(230, 81, 0, 0.4);
+        color: #e65100;
+        border-radius: 6px;
+        padding: 2px 10px;
+        cursor: pointer;
+        font-size: 0.9em;
+      }
+
       /* Phone: stack cabinets vertically */
       @media (max-width: 599px) {
         .header-row {
@@ -6119,6 +6435,15 @@ __decorate([
 __decorate([
     r()
 ], WineCellarCard.prototype, "_showWineList", void 0);
+__decorate([
+    r()
+], WineCellarCard.prototype, "_buyList", void 0);
+__decorate([
+    r()
+], WineCellarCard.prototype, "_addToBuyListMode", void 0);
+__decorate([
+    r()
+], WineCellarCard.prototype, "_movingBuyListItem", void 0);
 WineCellarCard = __decorate([
     t("wine-cellar-card")
 ], WineCellarCard);

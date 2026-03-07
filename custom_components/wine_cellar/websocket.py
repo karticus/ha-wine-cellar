@@ -67,6 +67,53 @@ async def _auto_enrich_wine(hass: HomeAssistant, wine: dict[str, Any]) -> None:
         _LOGGER.warning("Auto-enrich failed for wine %s: %s", wine.get("id"), err)
 
 
+async def _auto_enrich_buy_list_item(hass: HomeAssistant, item: dict[str, Any]) -> None:
+    """Background task: enrich a buy list item with Vivino data."""
+    try:
+        vivino = hass.data[DOMAIN].get("vivino")
+        if not vivino:
+            return
+        parts = []
+        if item.get("winery"):
+            parts.append(item["winery"])
+        if item.get("name"):
+            parts.append(item["name"])
+        if item.get("vintage"):
+            parts.append(str(item["vintage"]))
+        query = " ".join(parts) if parts else ""
+        if not query:
+            return
+
+        result = await vivino.search_wine(query)
+        if not result:
+            return
+
+        lookup = result[0]
+        storage = hass.data[DOMAIN]["storage"]
+        updates: dict[str, Any] = {}
+
+        for key in ("rating", "ratings_count", "image_url", "description",
+                    "food_pairings", "alcohol", "grape_variety"):
+            val = lookup.get(key)
+            if val and not item.get(key):
+                updates[key] = val
+
+        if lookup.get("price"):
+            updates["retail_price"] = lookup["price"]
+
+        for key in ("region", "country", "type"):
+            val = lookup.get(key)
+            if val and not item.get(key):
+                updates[key] = val
+
+        if updates:
+            storage.update_buy_list_item(item["id"], updates)
+            await storage.async_save()
+            hass.bus.async_fire(f"{DOMAIN}_updated")
+    except Exception as err:
+        _LOGGER.warning("Auto-enrich failed for buy list item %s: %s", item.get("id"), err)
+
+
 def async_register_websocket_commands(hass: HomeAssistant) -> None:
     """Register WebSocket commands."""
     websocket_api.async_register_command(hass, ws_get_wines)
@@ -91,6 +138,10 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_extract_wine_list)
     websocket_api.async_register_command(hass, ws_enrich_wine_vivino)
     websocket_api.async_register_command(hass, ws_analyze_wine_transient)
+    websocket_api.async_register_command(hass, ws_get_buy_list)
+    websocket_api.async_register_command(hass, ws_add_to_buy_list)
+    websocket_api.async_register_command(hass, ws_remove_from_buy_list)
+    websocket_api.async_register_command(hass, ws_move_to_cellar)
 
 
 @websocket_api.websocket_command({vol.Required("type"): "wine_cellar/get_wines"})
@@ -892,3 +943,100 @@ async def ws_analyze_wine_transient(
     except Exception as err:
         _LOGGER.warning("Transient AI analysis error: %s", err)
         connection.send_result(msg["id"], {"result": None, "error": str(err)})
+
+
+# ── Buy List ──────────────────────────────────────────────────────────
+
+
+@websocket_api.websocket_command({vol.Required("type"): "wine_cellar/get_buy_list"})
+@callback
+def ws_get_buy_list(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Return all buy list items."""
+    storage = hass.data[DOMAIN]["storage"]
+    connection.send_result(msg["id"], {"buy_list": storage.buy_list})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "wine_cellar/add_to_buy_list",
+        vol.Required("wine"): dict,
+    }
+)
+@websocket_api.async_response
+async def ws_add_to_buy_list(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Add a wine to the buy list, then auto-enrich with Vivino."""
+    storage = hass.data[DOMAIN]["storage"]
+    item = storage.add_buy_list_item(msg["wine"])
+    await storage.async_save()
+    hass.bus.async_fire(f"{DOMAIN}_updated")
+    connection.send_result(msg["id"], {"item": item})
+
+    # Auto-enrich in background
+    hass.async_create_task(_auto_enrich_buy_list_item(hass, item))
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "wine_cellar/remove_from_buy_list",
+        vol.Required("item_id"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_remove_from_buy_list(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Remove a wine from the buy list."""
+    storage = hass.data[DOMAIN]["storage"]
+    success = storage.remove_buy_list_item(msg["item_id"])
+    if success:
+        await storage.async_save()
+        hass.bus.async_fire(f"{DOMAIN}_updated")
+    connection.send_result(msg["id"], {"success": success})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "wine_cellar/move_to_cellar",
+        vol.Required("item_id"): str,
+        vol.Required("cabinet_id"): str,
+        vol.Optional("row"): int,
+        vol.Optional("col"): int,
+        vol.Optional("zone", default=""): str,
+    }
+)
+@websocket_api.async_response
+async def ws_move_to_cellar(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Move a wine from buy list to cellar."""
+    storage = hass.data[DOMAIN]["storage"]
+    item = storage.get_buy_list_item(msg["item_id"])
+    if not item:
+        connection.send_result(msg["id"], {"error": "Item not found in buy list."})
+        return
+
+    # Build wine data from buy list item + location
+    wine_data = {**item}
+    wine_data.pop("id", None)
+    wine_data["cabinet_id"] = msg["cabinet_id"]
+    wine_data["row"] = msg.get("row")
+    wine_data["col"] = msg.get("col")
+    wine_data["zone"] = msg.get("zone", "")
+
+    wine = storage.add_wine(wine_data)
+    storage.remove_buy_list_item(msg["item_id"])
+    await storage.async_save()
+    hass.bus.async_fire(f"{DOMAIN}_updated")
+    connection.send_result(msg["id"], {"wine": wine})

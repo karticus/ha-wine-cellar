@@ -11,6 +11,7 @@ from homeassistant.helpers.storage import Store
 
 from .const import (
     CONF_BARCODE_CACHE,
+    CONF_BUY_LIST,
     CONF_CABINETS,
     CONF_WINES,
     DEFAULT_CABINETS,
@@ -43,6 +44,11 @@ class WineCellarStorage:
         """Return barcode lookup cache."""
         return self._data.get(CONF_BARCODE_CACHE, {})
 
+    @property
+    def buy_list(self) -> list[dict[str, Any]]:
+        """Return all buy list items."""
+        return self._data.get(CONF_BUY_LIST, [])
+
     async def async_load(self) -> None:
         """Load data from storage."""
         data = await self._store.async_load()
@@ -51,6 +57,7 @@ class WineCellarStorage:
                 CONF_WINES: [],
                 CONF_CABINETS: [dict(c) for c in DEFAULT_CABINETS],
                 CONF_BARCODE_CACHE: {},
+                CONF_BUY_LIST: [],
             }
             await self.async_save()
         else:
@@ -63,6 +70,9 @@ class WineCellarStorage:
             for wine in self._data.get(CONF_WINES, []):
                 if "retail_price" not in wine:
                     wine["retail_price"] = None
+            # Migrate: ensure buy_list exists
+            if CONF_BUY_LIST not in self._data:
+                self._data[CONF_BUY_LIST] = []
 
     async def async_save(self) -> None:
         """Save data to storage."""
@@ -238,3 +248,62 @@ class WineCellarStorage:
     def get_cached_barcode(self, barcode: str) -> dict[str, Any] | None:
         """Get cached barcode data."""
         return self._data.get(CONF_BARCODE_CACHE, {}).get(barcode)
+
+    # ── Buy List ──────────────────────────────────────────────────────
+
+    def add_buy_list_item(self, wine_data: dict[str, Any]) -> dict[str, Any]:
+        """Add a wine to the buy list."""
+        item = {
+            "id": str(uuid.uuid4()),
+            "barcode": wine_data.get("barcode", ""),
+            "name": wine_data.get("name", "Unknown Wine"),
+            "winery": wine_data.get("winery", ""),
+            "region": wine_data.get("region", ""),
+            "country": wine_data.get("country", ""),
+            "vintage": wine_data.get("vintage"),
+            "type": wine_data.get("type", "red"),
+            "grape_variety": wine_data.get("grape_variety", ""),
+            "rating": wine_data.get("rating"),
+            "image_url": wine_data.get("image_url", ""),
+            "price": wine_data.get("price"),
+            "retail_price": wine_data.get("retail_price"),
+            "notes": wine_data.get("notes", ""),
+            "description": wine_data.get("description", ""),
+            "food_pairings": wine_data.get("food_pairings", ""),
+            "alcohol": wine_data.get("alcohol", ""),
+            "ratings_count": wine_data.get("ratings_count"),
+            "ai_ratings": wine_data.get("ai_ratings"),
+            "disposition": wine_data.get("disposition", ""),
+            "drink_window": wine_data.get("drink_window", ""),
+            "added_at": datetime.now(timezone.utc).isoformat(),
+        }
+        self._data.setdefault(CONF_BUY_LIST, []).append(item)
+        return item
+
+    def remove_buy_list_item(self, item_id: str) -> bool:
+        """Remove a wine from the buy list by ID."""
+        items = self._data.get(CONF_BUY_LIST, [])
+        for i, item in enumerate(items):
+            if item["id"] == item_id:
+                items.pop(i)
+                return True
+        return False
+
+    def get_buy_list_item(self, item_id: str) -> dict[str, Any] | None:
+        """Get a single buy list item by ID."""
+        for item in self._data.get(CONF_BUY_LIST, []):
+            if item["id"] == item_id:
+                return item
+        return None
+
+    def update_buy_list_item(
+        self, item_id: str, updates: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """Update a buy list item's data."""
+        for item in self._data.get(CONF_BUY_LIST, []):
+            if item["id"] == item_id:
+                for key, value in updates.items():
+                    if key != "id":
+                        item[key] = value
+                return item
+        return None

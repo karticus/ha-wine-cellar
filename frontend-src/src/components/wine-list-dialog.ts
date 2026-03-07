@@ -21,6 +21,7 @@ export class WineListDialog extends LitElement {
   @state() private _expandedIndex: number | null = null;
   @state() private _addedIndices: Set<number> = new Set();
   @state() private _cancelEnrichment = false;
+  @state() private _buyListIndices: Set<number> = new Set();
 
   static styles = [
     sharedStyles,
@@ -300,6 +301,25 @@ export class WineListDialog extends LitElement {
         cursor: default;
       }
 
+      .wl-buy-btn {
+        background: #e65100;
+        color: #fff;
+        border: none;
+        border-radius: 6px;
+        font-size: 0.75em;
+        padding: 4px 8px;
+        cursor: pointer;
+        white-space: nowrap;
+        margin-top: 4px;
+      }
+
+      .wl-buy-btn:hover { background: #bf360c; }
+
+      .wl-buy-btn.added {
+        background: #546e7a;
+        cursor: default;
+      }
+
       .footer-actions {
         display: flex;
         gap: 8px;
@@ -334,6 +354,7 @@ export class WineListDialog extends LitElement {
       this._aiEnriching = false;
       this._expandedIndex = null;
       this._addedIndices = new Set();
+      this._buyListIndices = new Set();
       this._cancelEnrichment = false;
     }
   }
@@ -516,6 +537,38 @@ export class WineListDialog extends LitElement {
     }
   }
 
+  private async _addToBuyList(wine: WineListItem) {
+    try {
+      await this.hass.callWS({
+        type: "wine_cellar/add_to_buy_list",
+        wine: {
+          name: wine.name,
+          winery: wine.winery,
+          vintage: wine.vintage,
+          type: wine.type,
+          region: wine.region,
+          country: wine.country,
+          grape_variety: wine.grape_variety,
+          rating: wine.vivino_rating,
+          ratings_count: wine.vivino_ratings_count,
+          image_url: wine.vivino_image_url,
+          price: wine.list_price,
+          retail_price: wine.vivino_price || wine.ai_estimated_price,
+          description: wine.ai_description,
+          ai_ratings: wine.ai_ratings,
+          disposition: wine.ai_disposition,
+          drink_window: wine.ai_drink_window,
+        },
+      });
+      this._buyListIndices = new Set([...this._buyListIndices, wine.index]);
+      this.dispatchEvent(
+        new CustomEvent("buy-list-updated", { bubbles: true, composed: true })
+      );
+    } catch (err) {
+      console.error("Failed to add wine to buy list", err);
+    }
+  }
+
   private _scanAnotherPage() {
     this._phase = "capture";
     this._error = "";
@@ -651,6 +704,13 @@ export class WineListDialog extends LitElement {
             @click=${() => !added && this._addToCellar(wine)}
           >
             ${added ? "\u2713" : "+ Add"}
+          </button>
+          <button
+            class="wl-buy-btn ${this._buyListIndices.has(wine.index) ? "added" : ""}"
+            ?disabled=${this._buyListIndices.has(wine.index)}
+            @click=${() => !this._buyListIndices.has(wine.index) && this._addToBuyList(wine)}
+          >
+            ${this._buyListIndices.has(wine.index) ? "\u2713" : "\uD83D\uDED2 Buy"}
           </button>
         </div>
       </div>

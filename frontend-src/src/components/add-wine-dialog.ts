@@ -25,6 +25,7 @@ export class AddWineDialog extends LitElement {
   @property({ attribute: false }) preselectedRow: number | null = null;
   @property({ attribute: false }) preselectedCol: number | null = null;
   @property({ attribute: false }) preselectedZone: string = "";
+  @property({ type: Boolean }) buyListMode = false;
 
   @state() private _step: Step = "scan";
   @state() private _scanMode: ScanMode = "idle";
@@ -318,7 +319,11 @@ export class AddWineDialog extends LitElement {
     `,
   ];
 
-  private _steps: Step[] = ["scan", "details", "location", "confirm"];
+  private get _steps(): Step[] {
+    return this.buyListMode
+      ? ["scan", "details", "confirm"]
+      : ["scan", "details", "location", "confirm"];
+  }
 
   /** Resize a base64 JPEG to a small thumbnail for storage */
   private _resizeImageForStorage(base64: string, maxDim = 200, quality = 0.6): Promise<string> {
@@ -547,16 +552,26 @@ export class AddWineDialog extends LitElement {
   private async _addWine() {
     this._loading = true;
     try {
-      await this.hass.callWS({
-        type: "wine_cellar/add_wine",
-        wine: this._wineData,
-      });
-      this.dispatchEvent(
-        new CustomEvent("wine-added", { bubbles: true, composed: true })
-      );
+      if (this.buyListMode) {
+        await this.hass.callWS({
+          type: "wine_cellar/add_to_buy_list",
+          wine: this._wineData,
+        });
+        this.dispatchEvent(
+          new CustomEvent("buy-list-updated", { bubbles: true, composed: true })
+        );
+      } else {
+        await this.hass.callWS({
+          type: "wine_cellar/add_wine",
+          wine: this._wineData,
+        });
+        this.dispatchEvent(
+          new CustomEvent("wine-added", { bubbles: true, composed: true })
+        );
+      }
       this._close();
     } catch (err) {
-      this._error = "Failed to add wine.";
+      this._error = this.buyListMode ? "Failed to add to buy list." : "Failed to add wine.";
     }
     this._loading = false;
   }
@@ -873,7 +888,7 @@ export class AddWineDialog extends LitElement {
         </button>
         <button
           class="btn btn-primary"
-          @click=${() => this._goToStep("location")}
+          @click=${() => this._goToStep(this.buyListMode ? "confirm" : "location")}
           ?disabled=${!this._wineData.name}
         >
           Next →
@@ -983,14 +998,18 @@ export class AddWineDialog extends LitElement {
               ${WINE_TYPE_LABELS[(this._wineData.type as WineType) || "red"]}
             </span>
           </div>
-          <div class="summary-row">
-            <span class="summary-label">Cabinet</span>
-            <span class="summary-value">${cabinetName}</span>
-          </div>
-          <div class="summary-row">
-            <span class="summary-label">Position</span>
-            <span class="summary-value">${posLabel}</span>
-          </div>
+          ${this.buyListMode
+            ? nothing
+            : html`
+                <div class="summary-row">
+                  <span class="summary-label">Cabinet</span>
+                  <span class="summary-value">${cabinetName}</span>
+                </div>
+                <div class="summary-row">
+                  <span class="summary-label">Position</span>
+                  <span class="summary-value">${posLabel}</span>
+                </div>
+              `}
           ${this._wineData.user_rating
             ? html`
                 <div class="summary-row">
@@ -1007,13 +1026,13 @@ export class AddWineDialog extends LitElement {
       </div>
 
       <div class="dialog-footer">
-        <button class="btn btn-outline" @click=${() => this._goToStep("location")}>
+        <button class="btn btn-outline" @click=${() => this._goToStep(this.buyListMode ? "details" : "location")}>
           ← Back
         </button>
         <button class="btn btn-primary" @click=${this._addWine}>
           ${this._loading
             ? html`<span class="loading-spinner"></span>`
-            : "Add Wine"}
+            : this.buyListMode ? "Add to Buy List" : "Add Wine"}
         </button>
       </div>
     `;
@@ -1025,7 +1044,7 @@ export class AddWineDialog extends LitElement {
     return html`
       <div class="dialog-overlay" @click=${this._close}>
         <div class="dialog" @click=${(e: Event) => e.stopPropagation()}>
-          <div class="dialog-header">Add Wine</div>
+          <div class="dialog-header">${this.buyListMode ? "Add to Buy List" : "Add Wine"}</div>
           ${this._renderStepIndicator()}
           ${this._step === "scan" ? this._renderScanStep() : nothing}
           ${this._step === "details" ? this._renderDetailsStep() : nothing}
