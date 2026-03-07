@@ -350,7 +350,7 @@ class GeminiVisionClient:
         }
 
         try:
-            timeout = aiohttp.ClientTimeout(total=60)
+            timeout = aiohttp.ClientTimeout(total=180)
             async with session.post(
                 GEMINI_API_URL,
                 params={"key": self._api_key},
@@ -495,7 +495,7 @@ class GeminiVisionClient:
             _LOGGER.error("Network error extracting wine list: %s", err)
             return {"error": f"Network error: {err}"}
         except TimeoutError:
-            return {"error": "Gemini API timed out (60s)"}
+            return {"error": "Gemini API timed out (180s). Try a shorter list or smaller image."}
         except Exception as err:
             _LOGGER.error("Wine list extraction error: %s", err)
             return {"error": f"Unexpected error: {err}"}
@@ -688,7 +688,7 @@ Wines:
         }
 
         try:
-            timeout = aiohttp.ClientTimeout(total=60)
+            timeout = aiohttp.ClientTimeout(total=180)
             async with session.post(
                 GEMINI_API_URL,
                 params={"key": self._api_key},

@@ -5989,6 +5989,7 @@ let WineListDialog = class WineListDialog extends i {
                   <div class="spinner"></div>
                   <div>Analyzing list...</div>
                   <div style="font-size:0.85em">Gemini is reading wines and scoring them</div>
+                  <div style="font-size:0.78em; color: var(--secondary-text-color); margin-top: 8px;">Long lists may take up to 3 minutes</div>
                 </div>
               `
             : A}
