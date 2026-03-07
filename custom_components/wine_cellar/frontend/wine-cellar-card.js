@@ -4769,17 +4769,15 @@ let RackSettingsDialog = class RackSettingsDialog extends i {
         <div class="rack-list">
           ${sorted.map((cab, idx) => {
             const storageCount = (cab.storage_rows || []).length;
-            cab.rows - storageCount;
+            const gridRows = cab.rows - storageCount;
             return b `
                 <div class="rack-item">
                   <div class="rack-info">
-                    <div class="rack-name">${cab.name}</div>
+                    <div class="rack-name">${cab.name}${cab.orientation === "horizontal" ? " ↔" : ""}</div>
                     <div class="rack-meta">
-                      ${cab.rows} rows × ${cab.cols} cols${(cab.depth || 1) > 1 ? ` × ${cab.depth} deep` : ""}
+                      ${gridRows} × ${cab.cols} grid${(cab.depth || 1) > 1 ? ` × ${cab.depth} deep` : ""}
                       · ${this._winesInCabinet(cab.id)} bottles
-                      ${storageCount > 0 ? ` · ${storageCount} storage row${storageCount > 1 ? "s" : ""}` : ""}
-                      ${cab.orientation === "horizontal" ? " · ↔ Horizontal" : ""}
-                      ${cab.has_bottom_zone ? " · + bottom zone" : ""}
+                      ${storageCount > 0 ? ` · ${storageCount} storage` : ""}
                     </div>
                   </div>
                   <div class="rack-actions">

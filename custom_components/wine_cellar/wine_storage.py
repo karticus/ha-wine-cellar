@@ -71,6 +71,10 @@ class WineCellarStorage:
                 # Migrate: orientation field
                 if "orientation" not in cab:
                     cab["orientation"] = "vertical"
+                # Migrate: clear legacy bottom zone flag
+                if cab.get("has_bottom_zone"):
+                    cab["has_bottom_zone"] = False
+                    cab["bottom_zone_name"] = ""
                 # Migrate storage rows to include type and capacity
                 for sr in cab.get("storage_rows", []):
                     if "type" not in sr:
