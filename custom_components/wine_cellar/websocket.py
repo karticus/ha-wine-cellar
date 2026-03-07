@@ -864,16 +864,15 @@ async def ws_extract_wine_list(
     if not gemini:
         connection.send_result(
             msg["id"],
-            {"result": None, "error": "Gemini API key not configured."},
+            {"error": "Gemini API key not configured."},
         )
         return
 
     result = await gemini.extract_wine_list(msg["image"])
 
-    if "error" in result:
-        connection.send_result(msg["id"], {"result": None, "error": result["error"]})
-    else:
-        connection.send_result(msg["id"], {"result": result, "error": None})
+    # Send result directly — on success it contains {wines, restaurant_name, currency}
+    # On error it contains {error: "message"}
+    connection.send_result(msg["id"], result)
 
 
 @websocket_api.websocket_command(
