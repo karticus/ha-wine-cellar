@@ -14,8 +14,7 @@ A custom Home Assistant integration for managing your wine collection. Track bot
 - **Interactive Cabinet Grid** — Color-coded bottles by type (red, white, rosé, sparkling, dessert) with thumbnail images, disposition badges (Drink/Hold/Past Peak), and Vivino ratings
 - **Deep Rack Support** — Racks can be 1-6 bottles deep; click any deep cell to open the depth side panel showing every bottle stacked front-to-back
 - **Depth Side Panel** — Slide-out panel reveals all bottles in a deep cell, click any wine for its detail or tap an empty slot to add a bottle at that specific depth
-- **Rack Orientation** — Each rack can be set to vertical (standard) or horizontal (transposed grid where columns become visual rows)
-- **Visual Rack Editor** — Create and edit racks with a live grid preview, stepper controls for rows/columns/depth, orientation toggle, and per-row type selectors
+- **Visual Rack Editor** — Create and edit racks with a live grid preview, stepper controls for rows/columns/depth, and per-row type selectors. Racks can be any size up to 20×20.
 - **Drag & Drop** — Rearrange bottles by dragging on desktop; long-press to move on mobile
 - **Move & Swap** — Move button in wine detail or long-press on mobile; bottles swap automatically if the target cell is occupied
 - **Copy & Paste** — Duplicate wines across your cellar for multi-bottle purchases
@@ -128,7 +127,7 @@ To enable label recognition, AI analysis, wine list scanning, and batch AI scann
 
 ## Default Cabinet Layout
 
-The integration ships with 3 cabinet sections, each with 10 rows and 9 columns (90 slots per section, 270 total). The bottom row of each section defaults to a bulk bin storage zone. Rack dimensions, names, depth (1-6 bottles deep), orientation (vertical/horizontal), and per-row storage types (Slots, Bulk Bin, Wine Box) can all be customized through the **Manage Racks** button in the tab bar.
+The integration ships with 3 cabinet sections, each with 10 rows and 9 columns (90 slots per section, 270 total). The bottom row of each section defaults to a bulk bin storage zone. Rack dimensions (up to 20×20), names, depth (1-6 bottles deep), and per-row storage types (Slots, Bulk Bin, Wine Box) can all be customized through the **Manage Racks** button in the tab bar.
 
 ## Data Sources
 
