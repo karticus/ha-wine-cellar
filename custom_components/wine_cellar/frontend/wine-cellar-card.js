@@ -4917,7 +4917,7 @@ let RackSettingsDialog = class RackSettingsDialog extends i {
                 return b `
                       ${Array.from({ length: gridCols }, (_, col) => b `
                         <div class="grid-preview-row">
-                          <span class="grid-preview-label">C${col + 1}</span>
+                          <span class="grid-preview-label">R${col + 1}</span>
                           ${gridRows.map(() => b `<div class="grid-preview-cell"></div>`)}
                           ${gridRows.length > 15
                     ? b `<span style="font-size:0.65em;color:var(--wc-text-secondary)">+${gridRows.length - 15}</span>`
@@ -4949,7 +4949,7 @@ let RackSettingsDialog = class RackSettingsDialog extends i {
                 const typeIcon = sr?.type === "box" ? "📦" : "◇";
                 return b `
                       <div class="grid-preview-row ${isStorage ? "storage" : ""}">
-                        <span class="grid-preview-label">R${row + 1}</span>
+                        <span class="grid-preview-label">C${row + 1}</span>
                         ${isStorage
                     ? b `<div class="grid-preview-cell"></div><span class="grid-preview-storage-label">${typeIcon} ${sr?.name || "Storage"}</span>`
                     : Array.from({ length: Math.min(numCols, 15) }, () => b `<div class="grid-preview-cell"></div>`)}
@@ -4970,7 +4970,7 @@ let RackSettingsDialog = class RackSettingsDialog extends i {
             const currentType = sr?.type || "slots";
             return b `
                 <div class="row-entry ${isStorage ? "storage" : ""}">
-                  <span class="row-num">R${row + 1}</span>
+                  <span class="row-num">${isHoriz ? "R" : "C"}${row + 1}</span>
                   <select
                     class="row-type-select"
                     @change=${(e) => {
@@ -5021,7 +5021,7 @@ let RackSettingsDialog = class RackSettingsDialog extends i {
                               </div>
                             `}
                       `
-                : b `<span class="row-type-info">${numCols} col${numCols !== 1 ? "s" : ""}${numDepth > 1 ? ` × ${numDepth} deep` : ""}</span>`}
+                : b `<span class="row-type-info">${numCols} ${isHoriz ? "col" : "row"}${numCols !== 1 ? "s" : ""}${numDepth > 1 ? ` × ${numDepth} deep` : ""}</span>`}
                 </div>
               `;
         })}
