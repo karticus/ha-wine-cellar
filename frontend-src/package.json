@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Wine Cellar Tracker Lovelace card for Home Assistant",
+  "description": "Cork Dork Lovelace card for Home Assistant",
   "scripts": {
     "build": "rollup -c",
     "dev": "rollup -c -w"

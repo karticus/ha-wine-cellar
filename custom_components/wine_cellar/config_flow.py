@@ -1,4 +1,4 @@
-"""Config flow for Wine Cellar Tracker."""
+"""Config flow for Cork Dork."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from .const import DOMAIN
 
 
 class WineCellarConfigFlow(ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for Wine Cellar."""
+    """Handle a config flow for Cork Dork."""
 
     VERSION = 1
 
@@ -27,7 +27,7 @@ class WineCellarConfigFlow(ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             return self.async_create_entry(
-                title="Wine Cellar",
+                title="Cork Dork",
                 data=user_input,
             )
 
@@ -44,7 +44,7 @@ class WineCellarConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class WineCellarOptionsFlow(OptionsFlow):
-    """Handle options flow for Wine Cellar."""
+    """Handle options flow for Cork Dork."""
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None

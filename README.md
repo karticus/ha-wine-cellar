@@ -1,4 +1,4 @@
-# Wine Cellar Tracker for Home Assistant
+# Cork Dork — Wine Cellar Tracker for Home Assistant
 
 A custom Home Assistant integration for managing your wine collection. Track bottles by location in interactive rack grids, scan labels and wine lists with AI, get Vivino ratings and pricing, drag-and-drop bottles between slots, browse and export your full inventory, and visualize your cellar with a feature-rich Lovelace card.
 
@@ -93,7 +93,7 @@ A custom Home Assistant integration for managing your wine collection. Track bot
 1. Open HACS in your Home Assistant instance
 2. Click the three dots in the top right and select **Custom repositories**
 3. Add `https://github.com/BaconWappedBitcoin/ha-wine-cellar` with category **Integration**
-4. Click **Install**
+4. Search for **Cork Dork** and click **Install**
 5. Restart Home Assistant
 
 ### Manual
@@ -104,12 +104,12 @@ A custom Home Assistant integration for managing your wine collection. Track bot
 ## Setup
 
 1. Go to **Settings > Devices & Services > Add Integration**
-2. Search for **Wine Cellar** and follow the setup flow
+2. Search for **Cork Dork** and follow the setup flow
 3. Add the Lovelace card to your dashboard:
 
 ```yaml
 type: custom:wine-cellar-card
-title: Wine Cellar
+title: Cork Dork
 ```
 
 ### AI Features (Optional)
@@ -117,7 +117,7 @@ title: Wine Cellar
 To enable label recognition, AI analysis, wine list scanning, and batch AI scanning:
 
 1. Get a free API key from [Google AI Studio](https://aistudio.google.com/apikey)
-2. Go to **Settings > Devices & Services > Wine Cellar > Configure**
+2. Go to **Settings > Devices & Services > Cork Dork > Configure**
 3. Enter your Gemini API key
 4. Features unlocked:
    - **Recognize Label** button in the Add Wine dialog (camera to full analysis in one scan)

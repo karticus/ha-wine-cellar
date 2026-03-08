@@ -1,4 +1,4 @@
-"""Sensors for Wine Cellar Tracker."""
+"""Sensors for Cork Dork."""
 
 from __future__ import annotations
 
@@ -52,7 +52,7 @@ class WineCellarTotalSensor(SensorEntity):
         """Initialize sensor."""
         self._storage = storage
         self._attr_unique_id = f"{entry.entry_id}_total_bottles"
-        self._attr_name = "Wine Cellar Total Bottles"
+        self._attr_name = "Cork Dork Total Bottles"
 
     @property
     def native_value(self) -> int:
@@ -79,7 +79,7 @@ class WineCellarCapacitySensor(SensorEntity):
         """Initialize sensor."""
         self._storage = storage
         self._attr_unique_id = f"{entry.entry_id}_capacity"
-        self._attr_name = "Wine Cellar Capacity"
+        self._attr_name = "Cork Dork Capacity"
 
     @property
     def native_value(self) -> float:
@@ -112,7 +112,7 @@ class WineCellarCabinetSensor(SensorEntity):
         self._storage = storage
         self._cabinet_id = cabinet["id"]
         self._attr_unique_id = f"{entry.entry_id}_{cabinet['id']}_count"
-        self._attr_name = f"Wine Cellar {cabinet['name']}"
+        self._attr_name = f"Cork Dork {cabinet['name']}"
 
     @property
     def native_value(self) -> int:

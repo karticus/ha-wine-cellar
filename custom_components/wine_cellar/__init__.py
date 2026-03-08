@@ -1,4 +1,4 @@
-"""Wine Cellar Tracker integration for Home Assistant."""
+"""Cork Dork integration for Home Assistant."""
 
 from __future__ import annotations
 
@@ -114,7 +114,7 @@ def _register_frontend_resource(hass: HomeAssistant) -> None:
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up Wine Cellar from a config entry."""
+    """Set up Cork Dork from a config entry."""
     domain_data = hass.data.setdefault(DOMAIN, {})
 
     # Register frontend static path (only once, persists across reloads)

@@ -2,19 +2,19 @@
   "config": {
     "step": {
       "user": {
-        "title": "Wine Cellar Tracker",
-        "description": "Set up Wine Cellar Tracker. This will create a wine inventory with default cabinet sections. You can customize the layout after setup.",
+        "title": "Cork Dork",
+        "description": "Set up Cork Dork. This will create a wine inventory with default cabinet sections. You can customize the layout after setup.",
         "data": {}
       }
     },
     "abort": {
-      "single_instance_allowed": "Wine Cellar Tracker is already configured."
+      "single_instance_allowed": "Cork Dork is already configured."
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "Wine Cellar Options",
+        "title": "Cork Dork Options",
         "data": {
           "default_wine_type": "Default wine type for new entries",
           "gemini_api_key": "Google Gemini API key (for AI label recognition)"

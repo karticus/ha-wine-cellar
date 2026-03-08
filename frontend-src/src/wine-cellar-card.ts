@@ -419,7 +419,7 @@ export class WineCellarCard extends LitElement {
       // Refresh zone panel if open
       this._refreshZonePanel();
     } catch (err) {
-      console.error("Wine Cellar: Failed to load data", err);
+      console.error("Cork Dork: Failed to load data", err);
     }
     this._loading = false;
   }
@@ -884,7 +884,7 @@ export class WineCellarCard extends LitElement {
       `;
     }
 
-    const title = this._config?.title || "Wine Cellar";
+    const title = this._config?.title || "Cork Dork";
     const filteredWines = this._getFilteredWines();
     const isSearching = !!(this._searchQuery || this._searchFilter !== "all");
     const unassignedWines = this._getUnassignedWines();
@@ -1573,7 +1573,7 @@ export class WineCellarCard extends LitElement {
 (window as any).customCards = (window as any).customCards || [];
 (window as any).customCards.push({
   type: "wine-cellar-card",
-  name: "Wine Cellar",
+  name: "Cork Dork",
   description: "Track your wine collection with visual cabinet layout",
   preview: true,
 });
