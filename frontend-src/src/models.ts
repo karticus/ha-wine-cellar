@@ -67,7 +67,6 @@ export interface Cabinet {
   bottom_zone_name: string;
   storage_rows: StorageRow[];
   order: number;
-  orientation: "vertical" | "horizontal";
 }
 
 export interface CellarStats {

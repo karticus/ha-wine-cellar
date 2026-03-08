@@ -68,9 +68,10 @@ class WineCellarStorage:
                     cab["storage_rows"] = []
                 if "depth" not in cab:
                     cab["depth"] = 1
-                # Migrate: orientation field
-                if "orientation" not in cab:
-                    cab["orientation"] = "vertical"
+                # Migrate: remove orientation, swap dims for horizontal
+                if cab.get("orientation") == "horizontal":
+                    cab["rows"], cab["cols"] = cab["cols"], cab["rows"]
+                cab.pop("orientation", None)
                 # Migrate: clear legacy bottom zone flag
                 if cab.get("has_bottom_zone"):
                     cab["has_bottom_zone"] = False
@@ -198,7 +199,6 @@ class WineCellarStorage:
             "bottom_zone_name": cabinet_data.get("bottom_zone_name", "Storage"),
             "storage_rows": cabinet_data.get("storage_rows", []),
             "order": cabinet_data.get("order", len(self.cabinets)),
-            "orientation": cabinet_data.get("orientation", "vertical"),
         }
         self._data[CONF_CABINETS].append(cabinet)
         return cabinet

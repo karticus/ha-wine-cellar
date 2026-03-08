@@ -54,7 +54,7 @@ export class WineCellarCard extends LitElement {
   @state() private _depthPanelWines: Wine[] = [];
   @state() private _depthPanelMaxDepth = 1;
 
-  // Zone side panel (boxes, bulk bins, horizontal racks)
+  // Zone side panel (boxes, bulk bins)
   @state() private _zonePanelOpen = false;
   @state() private _zonePanelCabinet: Cabinet | null = null;
   @state() private _zonePanelZone = "";

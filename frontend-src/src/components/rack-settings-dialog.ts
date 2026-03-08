@@ -480,7 +480,6 @@ export class RackSettingsDialog extends LitElement {
       depth: 1,
       has_bottom_zone: false,
       bottom_zone_name: "",
-      orientation: "vertical",
     };
     this._editStorageRows = [];
   }
@@ -488,10 +487,7 @@ export class RackSettingsDialog extends LitElement {
   private _startEdit(cabinet: Cabinet) {
     this._mode = "edit";
     this._error = "";
-    this._editCabinet = {
-      ...cabinet,
-      orientation: cabinet.orientation || "vertical",
-    };
+    this._editCabinet = { ...cabinet };
     // Initialize storage rows from cabinet data, ensuring boxes arrays exist
     this._editStorageRows = (cabinet.storage_rows || []).map((sr) => {
       if (sr.type === "box" && !sr.boxes) {
@@ -627,7 +623,7 @@ export class RackSettingsDialog extends LitElement {
           bottom_zone_name: "",
           storage_rows: this._editStorageRows,
           order: this.cabinets.length,
-          orientation: this._editCabinet.orientation || "vertical",
+          orientation: "vertical",
         },
       });
       this._notifyUpdate();
@@ -660,7 +656,7 @@ export class RackSettingsDialog extends LitElement {
           has_bottom_zone: false,
           bottom_zone_name: "",
           storage_rows: validStorageRows,
-          orientation: this._editCabinet.orientation || "vertical",
+          orientation: "vertical",
         },
       });
 
@@ -762,15 +758,12 @@ export class RackSettingsDialog extends LitElement {
           ${sorted.map(
             (cab, idx) => {
               const storageCount = (cab.storage_rows || []).length;
-              const isH = cab.orientation === "horizontal";
-              const dispRows = isH ? cab.cols : cab.rows;
-              const dispCols = isH ? cab.rows : cab.cols;
               return html`
                 <div class="rack-item">
                   <div class="rack-info">
-                    <div class="rack-name">${cab.name}${isH ? " ↔" : ""}</div>
+                    <div class="rack-name">${cab.name}</div>
                     <div class="rack-meta">
-                      ${dispRows} × ${dispCols} grid${(cab.depth || 1) > 1 ? ` × ${cab.depth} deep` : ""}
+                      ${cab.rows} × ${cab.cols} grid${(cab.depth || 1) > 1 ? ` × ${cab.depth} deep` : ""}
                       · ${this._winesInCabinet(cab.id)} bottles
                       ${storageCount > 0 ? ` · ${storageCount} storage` : ""}
                     </div>
@@ -815,7 +808,6 @@ export class RackSettingsDialog extends LitElement {
 
   private _renderForm() {
     const isEdit = this._mode === "edit";
-    const isHoriz = this._editCabinet.orientation === "horizontal";
     const numRows = this._editCabinet.rows || 1;
     const numCols = this._editCabinet.cols || 8;
     const numDepth = (this._editCabinet as any).depth || 1;
@@ -861,17 +853,17 @@ export class RackSettingsDialog extends LitElement {
             <div class="stepper-wrap">
               <div class="stepper-label">Rows</div>
               <div class="stepper">
-                <button class="stepper-btn" @click=${isHoriz ? this._removeCol : this._removeRow} ?disabled=${(isHoriz ? numCols : numRows) <= 1}>−</button>
-                <span class="stepper-value">${isHoriz ? numCols : numRows}</span>
-                <button class="stepper-btn" @click=${isHoriz ? this._addCol : this._addRow} ?disabled=${(isHoriz ? numCols : numRows) >= 20}>+</button>
+                <button class="stepper-btn" @click=${this._removeRow} ?disabled=${numRows <= 1}>−</button>
+                <span class="stepper-value">${numRows}</span>
+                <button class="stepper-btn" @click=${this._addRow} ?disabled=${numRows >= 20}>+</button>
               </div>
             </div>
             <div class="stepper-wrap">
               <div class="stepper-label">Columns</div>
               <div class="stepper">
-                <button class="stepper-btn" @click=${isHoriz ? this._removeRow : this._removeCol} ?disabled=${(isHoriz ? numRows : numCols) <= 1}>−</button>
-                <span class="stepper-value">${isHoriz ? numRows : numCols}</span>
-                <button class="stepper-btn" @click=${isHoriz ? this._addRow : this._addCol} ?disabled=${(isHoriz ? numRows : numCols) >= 20}>+</button>
+                <button class="stepper-btn" @click=${this._removeCol} ?disabled=${numCols <= 1}>−</button>
+                <span class="stepper-value">${numCols}</span>
+                <button class="stepper-btn" @click=${this._addCol} ?disabled=${numCols >= 20}>+</button>
               </div>
             </div>
             <div class="stepper-wrap">
@@ -884,85 +876,26 @@ export class RackSettingsDialog extends LitElement {
             </div>
           </div>
 
-          <!-- Orientation toggle -->
-          <div style="margin-bottom:12px;">
-            <div class="stepper-label">Orientation</div>
-            <div style="display:flex;gap:4px;">
-              <button
-                class="small-btn"
-                style="${this._editCabinet.orientation !== 'horizontal' ? 'background:var(--wc-primary);color:white;border-color:var(--wc-primary);' : ''}"
-                @click=${() => this._editCabinet = { ...this._editCabinet, orientation: 'vertical' as const }}
-              >↕ Vertical</button>
-              <button
-                class="small-btn"
-                style="${this._editCabinet.orientation === 'horizontal' ? 'background:var(--wc-primary);color:white;border-color:var(--wc-primary);' : ''}"
-                @click=${() => this._editCabinet = { ...this._editCabinet, orientation: 'horizontal' as const }}
-              >↔ Horizontal</button>
-            </div>
-          </div>
-
           <!-- Visual grid preview -->
           <div class="grid-preview">
-            ${this._editCabinet.orientation === "horizontal"
-              ? html`
-                  <!-- Horizontal: transpose grid (cols become visual rows) -->
-                  ${(() => {
-                    const gridRows: number[] = [];
-                    const storageRowNums: number[] = [];
-                    for (let r = 0; r < numRows; r++) {
-                      if (this._isStorageRow(r)) storageRowNums.push(r);
-                      else gridRows.push(r);
-                    }
-                    const gridCols = Math.min(numCols, 15);
-                    return html`
-                      ${Array.from({ length: gridCols }, (_, col) => html`
-                        <div class="grid-preview-row">
-                          <span class="grid-preview-label">R${col + 1}</span>
-                          ${gridRows.map(() => html`<div class="grid-preview-cell"></div>`)}
-                          ${gridRows.length > 15
-                            ? html`<span style="font-size:0.65em;color:var(--wc-text-secondary)">+${gridRows.length - 15}</span>`
-                            : nothing}
-                        </div>
-                      `)}
-                      ${numCols > 15
-                        ? html`<div style="font-size:0.6em;color:var(--wc-text-secondary);text-align:center;padding:2px;">+${numCols - 15} more columns</div>`
-                        : nothing}
-                      ${storageRowNums.map((row) => {
-                        const sr = this._getStorageRow(row);
-                        const typeIcon = sr?.type === "box" ? "📦" : "◇";
-                        return html`
-                          <div class="grid-preview-row storage">
-                            <span class="grid-preview-label">R${row + 1}</span>
-                            <div class="grid-preview-cell"></div>
-                            <span class="grid-preview-storage-label">${typeIcon} ${sr?.name || "Storage"}</span>
-                          </div>
-                        `;
-                      })}
-                    `;
-                  })()}
-                `
-              : html`
-                  <!-- Vertical: standard grid -->
-                  ${Array.from({ length: numRows }, (_, row) => {
-                    const isStorage = this._isStorageRow(row);
-                    const sr = this._getStorageRow(row);
-                    const typeIcon = sr?.type === "box" ? "📦" : "◇";
-                    return html`
-                      <div class="grid-preview-row ${isStorage ? "storage" : ""}">
-                        <span class="grid-preview-label">C${row + 1}</span>
-                        ${isStorage
-                          ? html`<div class="grid-preview-cell"></div><span class="grid-preview-storage-label">${typeIcon} ${sr?.name || "Storage"}</span>`
-                          : Array.from({ length: Math.min(numCols, 15) }, () =>
-                              html`<div class="grid-preview-cell"></div>`
-                            )}
-                        ${!isStorage && numCols > 15
-                          ? html`<span style="font-size:0.65em;color:var(--wc-text-secondary)">+${numCols - 15}</span>`
-                          : nothing}
-                      </div>
-                    `;
-                  })}
-                `
-            }
+            ${Array.from({ length: numRows }, (_, row) => {
+              const isStorage = this._isStorageRow(row);
+              const sr = this._getStorageRow(row);
+              const typeIcon = sr?.type === "box" ? "📦" : "◇";
+              return html`
+                <div class="grid-preview-row ${isStorage ? "storage" : ""}">
+                  <span class="grid-preview-label">R${row + 1}</span>
+                  ${isStorage
+                    ? html`<div class="grid-preview-cell"></div><span class="grid-preview-storage-label">${typeIcon} ${sr?.name || "Storage"}</span>`
+                    : Array.from({ length: Math.min(numCols, 15) }, () =>
+                        html`<div class="grid-preview-cell"></div>`
+                      )}
+                  ${!isStorage && numCols > 15
+                    ? html`<span style="font-size:0.65em;color:var(--wc-text-secondary)">+${numCols - 15}</span>`
+                    : nothing}
+                </div>
+              `;
+            })}
           </div>
 
           <!-- Row list with type selectors -->
@@ -973,7 +906,7 @@ export class RackSettingsDialog extends LitElement {
               const currentType = sr?.type || "slots";
               return html`
                 <div class="row-entry ${isStorage ? "storage" : ""}">
-                  <span class="row-num">${isHoriz ? "R" : "C"}${row + 1}</span>
+                  <span class="row-num">R${row + 1}</span>
                   <select
                     class="row-type-select"
                     @change=${(e: Event) => {
@@ -1026,7 +959,7 @@ export class RackSettingsDialog extends LitElement {
                               </div>
                             `}
                       `
-                    : html`<span class="row-type-info">${numCols} ${isHoriz ? "col" : "row"}${numCols !== 1 ? "s" : ""}${numDepth > 1 ? ` × ${numDepth} deep` : ""}</span>`}
+                    : html`<span class="row-type-info">${numCols} col${numCols !== 1 ? "s" : ""}${numDepth > 1 ? ` × ${numDepth} deep` : ""}</span>`}
                 </div>
               `;
             })}

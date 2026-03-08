@@ -802,46 +802,19 @@ export class CabinetGrid extends LitElement {
     `;
   }
 
-  private _renderGridHorizontal(rows: number, cols: number, storageRows: Set<number>) {
-    // Collect storage rows to render after the transposed grid
-    const storageRowNumbers: number[] = [];
-    const gridRowNumbers: number[] = [];
-    for (let r = 0; r < rows; r++) {
-      if (storageRows.has(r)) {
-        storageRowNumbers.push(r);
-      } else {
-        gridRowNumbers.push(r);
-      }
-    }
-
-    return html`
-      <!-- Transposed grid: cols become visual rows, rows become visual columns -->
-      ${Array.from({ length: cols }, (_, col) => html`
-        <div class="row">
-          ${gridRowNumbers.map((row) => this._renderCell(row, col))}
-        </div>
-      `)}
-      <!-- Storage rows render normally below -->
-      ${storageRowNumbers.map((row) => this._renderStorageZone(row))}
-    `;
-  }
-
   render() {
     const { rows, cols } = this.cabinet;
     const storageRows = this._getStorageRowSet();
-    const isHorizontal = this.cabinet.orientation === "horizontal";
 
     return html`
       <div class="cabinet">
-        <div class="cabinet-name">${this.cabinet.name}${isHorizontal ? " ↔" : ""}</div>
+        <div class="cabinet-name">${this.cabinet.name}</div>
         <div class="grid-inner">
-          ${isHorizontal
-            ? this._renderGridHorizontal(rows, cols, storageRows)
-            : Array.from({ length: rows }, (_, row) =>
-                storageRows.has(row)
-                  ? this._renderStorageZone(row)
-                  : this._renderGridRow(row, cols)
-              )
+          ${Array.from({ length: rows }, (_, row) =>
+              storageRows.has(row)
+                ? this._renderStorageZone(row)
+                : this._renderGridRow(row, cols)
+            )
           }
         </div>
         ${this.cabinet.has_bottom_zone

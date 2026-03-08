@@ -25,7 +25,6 @@ DEFAULT_CABINETS = [
         "has_bottom_zone": False,
         "bottom_zone_name": "",
         "storage_rows": [{"row": 9, "name": "Box Storage", "type": "bulk", "capacity": 20}],
-        "orientation": "vertical",
         "order": 0,
     },
     {
@@ -38,7 +37,6 @@ DEFAULT_CABINETS = [
         "has_bottom_zone": False,
         "bottom_zone_name": "",
         "storage_rows": [{"row": 9, "name": "Box Storage", "type": "bulk", "capacity": 20}],
-        "orientation": "vertical",
         "order": 1,
     },
     {
@@ -51,7 +49,6 @@ DEFAULT_CABINETS = [
         "has_bottom_zone": False,
         "bottom_zone_name": "",
         "storage_rows": [{"row": 9, "name": "Box Storage", "type": "bulk", "capacity": 20}],
-        "orientation": "vertical",
         "order": 2,
     },
 ]
