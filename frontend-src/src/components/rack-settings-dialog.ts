@@ -762,10 +762,9 @@ export class RackSettingsDialog extends LitElement {
           ${sorted.map(
             (cab, idx) => {
               const storageCount = (cab.storage_rows || []).length;
-              const gridRows = cab.rows - storageCount;
               const isH = cab.orientation === "horizontal";
-              const dispRows = isH ? cab.cols : gridRows;
-              const dispCols = isH ? gridRows : cab.cols;
+              const dispRows = isH ? cab.cols : cab.rows;
+              const dispCols = isH ? cab.rows : cab.cols;
               return html`
                 <div class="rack-item">
                   <div class="rack-info">
