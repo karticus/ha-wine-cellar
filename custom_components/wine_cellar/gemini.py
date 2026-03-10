@@ -129,6 +129,46 @@ Wine analysis rules (apply to every wine):
 - Rating fields (rating_ws, rating_rp, rating_jd, rating_ag): If you know published critic scores, use those. Otherwise, provide your best estimated score (integer 85-100) based on the producer's reputation, region, and vintage quality. Only use null for obscure wines you truly cannot assess.
   - rating_ws = Wine Spectator, rating_rp = Robert Parker, rating_jd = Jeb Dunnuck, rating_ag = Antonio Galloni"""
 
+NEWSLETTER_MATCH_PROMPT = """You are extracting a single wine blurb from OCR/text extracted pages of a K&L wine club newsletter.
+
+Target wine:
+- Winery: {winery}
+- Wine Name: {name}
+- Vintage: {vintage}
+
+Newsletter: {newsletter_label}
+Source URL: {newsletter_url}
+
+You will receive one or more page snippets, each prefixed with [PAGE n].
+
+Return ONLY JSON with this exact structure:
+{{
+  "found": true,
+  "page": 1,
+  "matched_wine_title": "title/header text from newsletter if present",
+  "blurb": "the tasting/commentary paragraph for the matching wine",
+  "evidence": "a short exact quote from the snippet proving the match (<= 25 words)",
+  "confidence": 0.0
+}}
+
+If not found, return:
+{{
+  "found": false,
+  "page": null,
+  "matched_wine_title": "",
+  "blurb": "",
+  "evidence": "",
+  "confidence": 0.0
+}}
+
+Matching rules:
+- Match semantically, not just exact string equality.
+- Treat punctuation/quotes/hyphen differences as equivalent.
+- Accept reordered naming variants (e.g., winery + cuvee + region + varietal).
+- Prefer exact vintage match when present.
+- Do not fabricate text. Blurb and evidence must come from provided snippets.
+"""
+
 
 class GeminiVisionClient:
     """Client for Google Gemini Vision API wine label recognition."""
@@ -722,3 +762,110 @@ Wines:
         except Exception as err:
             _LOGGER.error("Wine analysis error: %s", err)
             return {"error": f"Analysis failed: {err}"}
+
+    async def find_newsletter_wine_blurb(
+        self,
+        wine: dict[str, Any],
+        newsletter_label: str,
+        newsletter_url: str,
+        pages: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Find a matching wine blurb from newsletter text snippets."""
+        if not self._api_key:
+            return {"error": "Gemini API key is empty"}
+        if not pages:
+            return {"error": "No newsletter pages provided"}
+
+        prompt = NEWSLETTER_MATCH_PROMPT.format(
+            winery=str(wine.get("winery", "")).strip(),
+            name=str(wine.get("name", "")).strip(),
+            vintage=str(wine.get("vintage", "")).strip() or "NV",
+            newsletter_label=newsletter_label,
+            newsletter_url=newsletter_url,
+        )
+        page_blocks = []
+        for page in pages:
+            page_no = page.get("page")
+            text = str(page.get("text", "")).strip()
+            if not text:
+                continue
+            page_blocks.append(f"[PAGE {page_no}]\n{text}")
+        if not page_blocks:
+            return {"error": "No newsletter text available"}
+
+        session = async_get_clientsession(self._hass)
+        body = {
+            "contents": [
+                {
+                    "parts": [
+                        {"text": prompt},
+                        {"text": "\n\n".join(page_blocks)},
+                    ]
+                }
+            ],
+            "generationConfig": {
+                "responseMimeType": "application/json",
+                "temperature": 0.0,
+            },
+        }
+
+        try:
+            timeout = aiohttp.ClientTimeout(total=60)
+            async with session.post(
+                GEMINI_API_URL,
+                params={"key": self._api_key},
+                json=body,
+                timeout=timeout,
+            ) as resp:
+                if resp.status == 429:
+                    return {"error": "Gemini API quota exhausted"}
+                if resp.status in (401, 403):
+                    return {"error": f"Gemini API key is invalid (HTTP {resp.status})"}
+                if resp.status != 200:
+                    return {"error": f"Gemini API error (HTTP {resp.status})"}
+
+                data = json.loads(await resp.text())
+                candidates = data.get("candidates", [])
+                if not candidates:
+                    return {"error": "Gemini returned no results"}
+
+                text = (
+                    candidates[0]
+                    .get("content", {})
+                    .get("parts", [{}])[0]
+                    .get("text", "")
+                )
+                result = json.loads(text)
+
+                found = bool(result.get("found"))
+                page = result.get("page")
+                if page is not None:
+                    try:
+                        page = int(page)
+                    except (ValueError, TypeError):
+                        page = None
+
+                confidence = result.get("confidence", 0.0)
+                try:
+                    confidence = float(confidence)
+                except (ValueError, TypeError):
+                    confidence = 0.0
+                confidence = max(0.0, min(1.0, confidence))
+
+                blurb = str(result.get("blurb", "")).strip()
+                evidence = str(result.get("evidence", "")).strip()
+                matched_title = str(result.get("matched_wine_title", "")).strip()
+
+                return {
+                    "found": found,
+                    "page": page,
+                    "matched_wine_title": matched_title,
+                    "blurb": blurb,
+                    "evidence": evidence,
+                    "confidence": confidence,
+                }
+        except json.JSONDecodeError as err:
+            return {"error": f"Failed to parse Gemini response: {err}"}
+        except Exception as err:
+            _LOGGER.error("Newsletter blurb match error: %s", err)
+            return {"error": f"Newsletter blurb match failed: {err}"}

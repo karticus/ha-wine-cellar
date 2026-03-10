@@ -14,6 +14,7 @@ from urllib.parse import urljoin
 import aiohttp
 from pypdf import PdfReader
 
+from .const import DOMAIN
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
@@ -23,6 +24,9 @@ NEWSLETTERS_URL = "https://onthetrail.klwines.com/newsletters-clubs"
 MAX_NEWSLETTERS = 8
 CACHE_TTL = timedelta(hours=24)
 MATCH_THRESHOLD = 4
+GEMINI_CONFIDENCE_THRESHOLD = 0.7
+MAX_GEMINI_PAGES = 10
+MAX_PAGE_CHARS = 3500
 DEBUG_WINE_ID = "7b87734c-3a7b-4ceb-943f-ff7ef0d5a6e9"
 DEBUG_KEYWORD = "madrigal"
 
@@ -68,6 +72,8 @@ class KLWinesClient:
     def __init__(self, hass: HomeAssistant) -> None:
         self._hass = hass
         self._sections: list[_BlurbSection] = []
+        self._refs: list[_NewsletterRef] = []
+        self._pdf_pages_by_url: dict[str, list[tuple[int, str]]] = {}
         self._loaded_at: datetime | None = None
 
     async def find_commentary(self, wine: dict[str, Any]) -> dict[str, Any] | None:
@@ -147,6 +153,9 @@ class KLWinesClient:
                     best_score,
                     MATCH_THRESHOLD,
                 )
+            gemini_match = await self._find_commentary_with_gemini(wine, debug_target)
+            if gemini_match:
+                return gemini_match
             return None
 
         blurb = best.body.strip() or best.title.strip()
@@ -177,13 +186,15 @@ class KLWinesClient:
         refs = await self._fetch_newsletter_refs()
         if not refs:
             return
+        self._refs = refs[:MAX_NEWSLETTERS]
         _LOGGER.debug("KL loaded %d newsletter refs from index page", len(refs))
 
         sections: list[_BlurbSection] = []
-        for ref in refs[:MAX_NEWSLETTERS]:
-            text = await self._fetch_pdf_text(ref.url)
-            if not text:
+        for ref in self._refs:
+            pages = await self._fetch_pdf_pages(ref.url)
+            if not pages:
                 continue
+            text = "\n".join(page_text for _, page_text in pages if page_text)
             extracted = _extract_blurb_sections(text, ref)
             _LOGGER.debug(
                 "KL extracted %d sections from newsletter '%s' (%s)",
@@ -243,8 +254,12 @@ class KLWinesClient:
         refs.sort(key=lambda r: r.source_date, reverse=True)
         return refs
 
-    async def _fetch_pdf_text(self, url: str) -> str:
-        """Download and parse a PDF file into plain text."""
+    async def _fetch_pdf_pages(self, url: str) -> list[tuple[int, str]]:
+        """Download and parse a PDF into page-numbered text."""
+        cached = self._pdf_pages_by_url.get(url)
+        if cached is not None:
+            return cached
+
         session = async_get_clientsession(self._hass)
         timeout = aiohttp.ClientTimeout(total=30)
         headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/pdf,*/*"}
@@ -253,23 +268,110 @@ class KLWinesClient:
             async with session.get(url, timeout=timeout, headers=headers) as resp:
                 if resp.status != 200:
                     _LOGGER.debug("KL newsletter PDF status %s for %s", resp.status, url)
-                    return ""
+                    return []
                 payload = await resp.read()
         except Exception as err:
             _LOGGER.debug("KL newsletter PDF fetch failed for %s: %s", url, err)
-            return ""
+            return []
 
         try:
             reader = PdfReader(io.BytesIO(payload))
-            chunks: list[str] = []
-            for page in reader.pages:
+            pages: list[tuple[int, str]] = []
+            for idx, page in enumerate(reader.pages, start=1):
                 txt = page.extract_text() or ""
                 if txt:
-                    chunks.append(txt)
-            return "\n".join(chunks)
+                    pages.append((idx, txt))
+            self._pdf_pages_by_url[url] = pages
+            return pages
         except Exception as err:
             _LOGGER.debug("KL newsletter PDF parse failed for %s: %s", url, err)
-            return ""
+            return []
+
+    async def _find_commentary_with_gemini(
+        self, wine: dict[str, Any], debug_target: bool
+    ) -> dict[str, Any] | None:
+        """Use Gemini to semantically match a wine blurb in newsletter pages."""
+        domain_data = self._hass.data.get(DOMAIN, {})
+        gemini = domain_data.get("gemini")
+        if not gemini:
+            return None
+        if not self._refs:
+            return None
+
+        for ref in self._refs:
+            pages = await self._fetch_pdf_pages(ref.url)
+            if not pages:
+                continue
+
+            candidate_pages = _select_candidate_pages_for_wine(
+                pages, wine
+            )[:MAX_GEMINI_PAGES]
+            if not candidate_pages:
+                continue
+            payload = [
+                {"page": page_num, "text": page_text[:MAX_PAGE_CHARS]}
+                for page_num, page_text in candidate_pages
+            ]
+            result = await gemini.find_newsletter_wine_blurb(
+                wine=wine,
+                newsletter_label=ref.label,
+                newsletter_url=ref.url,
+                pages=payload,
+            )
+            if debug_target:
+                _LOGGER.debug(
+                    "KL DEBUG Gemini raw source='%s' found=%s confidence=%s page=%s title='%s' evidence='%s'",
+                    ref.label,
+                    result.get("found"),
+                    result.get("confidence"),
+                    result.get("page"),
+                    str(result.get("matched_wine_title", ""))[:180],
+                    str(result.get("evidence", ""))[:180],
+                )
+            if result.get("error"):
+                if debug_target:
+                    _LOGGER.debug(
+                        "KL DEBUG Gemini error for '%s': %s",
+                        ref.label,
+                        result.get("error"),
+                    )
+                continue
+
+            found = bool(result.get("found"))
+            try:
+                confidence = float(result.get("confidence") or 0.0)
+            except (TypeError, ValueError):
+                confidence = 0.0
+            blurb = str(result.get("blurb", "")).strip()
+            page = result.get("page")
+            if found and blurb and confidence >= GEMINI_CONFIDENCE_THRESHOLD:
+                source_label = ref.label
+                if page:
+                    source_label = f"{ref.label} (p. {page})"
+                if debug_target:
+                    _LOGGER.debug(
+                        "KL DEBUG Gemini match source='%s' page=%s confidence=%.2f title='%s' evidence='%s'",
+                        ref.label,
+                        page,
+                        confidence,
+                        str(result.get("matched_wine_title", ""))[:180],
+                        str(result.get("evidence", ""))[:180],
+                    )
+                return {
+                    "blurb": blurb,
+                    "source_url": ref.url,
+                    "source_label": source_label,
+                    "source_date": ref.source_date,
+                }
+
+            if debug_target:
+                _LOGGER.debug(
+                    "KL DEBUG Gemini no match source='%s' found=%s confidence=%.2f",
+                    ref.label,
+                    found,
+                    confidence,
+                )
+        return None
 
 
 def _extract_blurb_sections(text: str, ref: _NewsletterRef) -> list[_BlurbSection]:
@@ -378,3 +480,25 @@ def _is_debug_target_wine(wine: dict[str, Any]) -> bool:
         return True
     name = f"{wine.get('winery', '')} {wine.get('name', '')}".lower()
     return DEBUG_KEYWORD in name
+
+
+def _select_candidate_pages_for_wine(
+    pages: list[tuple[int, str]], wine: dict[str, Any]
+) -> list[tuple[int, str]]:
+    """Pick pages likely to contain the wine before invoking Gemini."""
+    tokens = _tokenize_for_match(f"{wine.get('winery', '')} {wine.get('name', '')}")
+    vintage = wine.get("vintage")
+    scored: list[tuple[int, int, str]] = []
+    for page_num, text in pages:
+        lowered = text.lower()
+        token_hits = sum(1 for token in tokens if token in lowered)
+        score = token_hits
+        if vintage and str(vintage) in lowered:
+            score += 2
+        if score > 0:
+            scored.append((score, page_num, text))
+
+    if not scored:
+        return pages
+    scored.sort(key=lambda row: row[0], reverse=True)
+    return [(page_num, text) for _, page_num, text in scored]
