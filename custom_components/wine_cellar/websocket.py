@@ -94,8 +94,8 @@ async def _auto_enrich_wine(hass: HomeAssistant, wine: dict[str, Any]) -> None:
             if val and not wine.get(key):
                 updates[key] = val
 
-        # KL commentary is additive and does not replace Vivino metadata.
-        kl_result = await _lookup_kl_commentary(hass, {**wine, **lookup})
+        # KL commentary should use original wine identity, not Vivino candidate identity.
+        kl_result = await _lookup_kl_commentary(hass, wine)
         updates.update(_kl_updates_from_result(kl_result))
 
         if updates:
@@ -139,7 +139,7 @@ async def _auto_enrich_buy_list_item(hass: HomeAssistant, item: dict[str, Any]) 
             if val and not item.get(key):
                 updates[key] = val
 
-        kl_result = await _lookup_kl_commentary(hass, {**item, **lookup})
+        kl_result = await _lookup_kl_commentary(hass, item)
         updates.update(_kl_updates_from_result(kl_result))
 
         if updates:
@@ -620,7 +620,7 @@ async def ws_refresh_wine(
         if val and not wine.get(key):
             updates[key] = val
 
-    kl_result = await _lookup_kl_commentary(hass, {**wine, **lookup})
+    kl_result = await _lookup_kl_commentary(hass, wine)
     updates.update(_kl_updates_from_result(kl_result))
 
     if updates:
@@ -882,7 +882,7 @@ async def ws_batch_refresh_vivino(
                 if val and not wine.get(key):
                     updates[key] = val
 
-            kl_result = await _lookup_kl_commentary(hass, {**wine, **lookup})
+            kl_result = await _lookup_kl_commentary(hass, wine)
             updates.update(_kl_updates_from_result(kl_result))
 
             if updates:
