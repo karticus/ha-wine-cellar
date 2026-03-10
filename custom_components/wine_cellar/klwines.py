@@ -30,6 +30,10 @@ MAX_GEMINI_PAGES = 10
 MAX_PAGE_CHARS = 3500
 DEBUG_WINE_ID = "7b87734c-3a7b-4ceb-943f-ff7ef0d5a6e9"
 DEBUG_KEYWORD = "madrigal"
+DEFAULT_BROWSER_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
 
 STOPWORDS = {
     "a",
@@ -215,10 +219,7 @@ class KLWinesClient:
         session = async_get_clientsession(self._hass)
         timeout = aiohttp.ClientTimeout(total=20)
         headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-            ),
+            "User-Agent": DEFAULT_BROWSER_UA,
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.9",
             "Referer": "https://onthetrail.klwines.com/",
@@ -266,16 +267,47 @@ class KLWinesClient:
 
         session = async_get_clientsession(self._hass)
         timeout = aiohttp.ClientTimeout(total=30)
-        headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/pdf,*/*"}
+        candidates = [url]
+        if "/s/" in url and "?" not in url:
+            candidates.append(f"{url}?download=1")
 
-        try:
-            async with session.get(url, timeout=timeout, headers=headers) as resp:
-                if resp.status != 200:
-                    _LOGGER.debug("KL newsletter PDF status %s for %s", resp.status, url)
-                    return []
-                payload = await resp.read()
-        except Exception as err:
-            _LOGGER.debug("KL newsletter PDF fetch failed for %s: %s", url, err)
+        payload = b""
+        for candidate in candidates:
+            headers = {
+                "User-Agent": DEFAULT_BROWSER_UA,
+                "Accept": "application/pdf,application/octet-stream,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Referer": NEWSLETTERS_URL,
+                "Origin": "https://onthetrail.klwines.com",
+                "Sec-Fetch-Dest": "document",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Site": "same-origin",
+            }
+            try:
+                async with session.get(
+                    candidate,
+                    timeout=timeout,
+                    headers=headers,
+                    allow_redirects=True,
+                ) as resp:
+                    if resp.status != 200:
+                        _LOGGER.debug(
+                            "KL newsletter PDF status %s for %s",
+                            resp.status,
+                            candidate,
+                        )
+                        continue
+                    payload = await resp.read()
+                    if payload:
+                        break
+            except Exception as err:
+                _LOGGER.debug(
+                    "KL newsletter PDF fetch failed for %s: %s",
+                    candidate,
+                    err,
+                )
+
+        if not payload:
             return []
 
         try:
@@ -522,23 +554,37 @@ def _extract_newsletter_refs_from_rss(rss: str) -> list[_NewsletterRef]:
         )
         title_text = _collapse_ws(_strip_tags(unescape(title_match.group(1)))) if title_match else ""
         date = _parse_month_year(title_text)
+        item_urls = [
+            unescape(href)
+            for href in re.findall(r"https?://[^\"'<>\s]+\.pdf", item, flags=re.IGNORECASE)
+        ]
+        if not item_urls:
+            continue
 
-        for href in re.findall(r"https?://[^\"'<>\s]+\.pdf", item, flags=re.IGNORECASE):
-            url = unescape(href)
-            if url in seen_urls:
-                continue
-            if not date:
-                date = _parse_month_year_from_url(url)
-            if not date:
-                continue
-            seen_urls.add(url)
-            refs.append(
-                _NewsletterRef(
-                    label=title_text or date.strftime("%B %Y"),
-                    source_date=date.strftime("%Y-%m"),
-                    url=url,
-                )
+        # Prefer static1 links (typically less bot-protected than /s/ links).
+        item_urls = sorted(
+            set(item_urls),
+            key=lambda u: (
+                "static1.squarespace.com" not in u.lower(),
+                "/s/" in u.lower(),
+            ),
+        )
+
+        chosen = item_urls[0]
+        if chosen in seen_urls:
+            continue
+        if not date:
+            date = _parse_month_year_from_url(chosen)
+        if not date:
+            continue
+        seen_urls.add(chosen)
+        refs.append(
+            _NewsletterRef(
+                label=title_text or date.strftime("%B %Y"),
+                source_date=date.strftime("%Y-%m"),
+                url=chosen,
             )
+        )
     return refs
 
 
