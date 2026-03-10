@@ -334,6 +334,7 @@ class KLWinesClient:
         if not self._refs:
             return None
 
+        candidates: list[tuple[float, dict[str, Any], _NewsletterRef]] = []
         for ref in self._refs:
             pages = await self._fetch_pdf_pages(ref.url)
             if not pages:
@@ -380,25 +381,21 @@ class KLWinesClient:
                 confidence = 0.0
             blurb = str(result.get("blurb", "")).strip()
             page = result.get("page")
-            if found and blurb and confidence >= GEMINI_CONFIDENCE_THRESHOLD:
-                source_label = ref.label
-                if page:
-                    source_label = f"{ref.label} (p. {page})"
+            if found and blurb:
+                quality = _gemini_match_quality(result, wine, ref)
+                score = (confidence * 10.0) + quality
+                candidates.append((score, result, ref))
                 if debug_target:
                     _LOGGER.debug(
-                        "KL DEBUG Gemini match source='%s' page=%s confidence=%.2f title='%s' evidence='%s'",
+                        "KL DEBUG Gemini cand source='%s' score=%.2f conf=%.2f quality=%.2f page=%s title='%s' evidence='%s'",
                         ref.label,
-                        page,
+                        score,
                         confidence,
+                        quality,
+                        page,
                         str(result.get("matched_wine_title", ""))[:180],
                         str(result.get("evidence", ""))[:180],
                     )
-                return {
-                    "blurb": blurb,
-                    "source_url": ref.url,
-                    "source_label": source_label,
-                    "source_date": ref.source_date,
-                }
 
             if debug_target:
                 _LOGGER.debug(
@@ -407,7 +404,49 @@ class KLWinesClient:
                     found,
                     confidence,
                 )
-        return None
+        if not candidates:
+            return None
+
+        candidates.sort(key=lambda row: row[0], reverse=True)
+        best_score, best_result, best_ref = candidates[0]
+        best_confidence = float(best_result.get("confidence") or 0.0)
+        best_quality = _gemini_match_quality(best_result, wine, best_ref)
+        if (
+            best_confidence < GEMINI_CONFIDENCE_THRESHOLD
+            or best_quality < 2.0
+            or best_score < 9.0
+        ):
+            if debug_target:
+                _LOGGER.debug(
+                    "KL DEBUG Gemini rejected best candidate source='%s' score=%.2f conf=%.2f quality=%.2f",
+                    best_ref.label,
+                    best_score,
+                    best_confidence,
+                    best_quality,
+                )
+            return None
+
+        source_label = best_ref.label
+        page = best_result.get("page")
+        if page:
+            source_label = f"{best_ref.label} (p. {page})"
+        if debug_target:
+            _LOGGER.debug(
+                "KL DEBUG Gemini selected source='%s' score=%.2f conf=%.2f quality=%.2f title='%s' evidence='%s'",
+                best_ref.label,
+                best_score,
+                best_confidence,
+                best_quality,
+                str(best_result.get("matched_wine_title", ""))[:180],
+                str(best_result.get("evidence", ""))[:180],
+            )
+
+        return {
+            "blurb": str(best_result.get("blurb", "")).strip(),
+            "source_url": best_ref.url,
+            "source_label": source_label,
+            "source_date": best_ref.source_date,
+        }
 
 
 def _extract_blurb_sections(text: str, ref: _NewsletterRef) -> list[_BlurbSection]:
@@ -626,3 +665,36 @@ def _select_candidate_pages_for_wine(
         return pages
     scored.sort(key=lambda row: row[0], reverse=True)
     return [(page_num, text) for _, page_num, text in scored]
+
+
+def _gemini_match_quality(
+    result: dict[str, Any], wine: dict[str, Any], ref: _NewsletterRef
+) -> float:
+    """Compute additional quality score for Gemini matches."""
+    tokens = _tokenize_for_match(f"{wine.get('winery', '')} {wine.get('name', '')}")
+    combined = " ".join(
+        [
+            str(result.get("matched_winery", "")),
+            str(result.get("matched_wine_title", "")),
+            str(result.get("evidence", "")),
+            str(result.get("blurb", ""))[:500],
+        ]
+    ).lower()
+    overlap = sum(1 for token in tokens if token in combined)
+
+    vintage = wine.get("vintage")
+    vintage_bonus = 0.0
+    if vintage and str(vintage) in combined:
+        vintage_bonus = 1.5
+    elif result.get("exact_vintage_match"):
+        vintage_bonus = 1.0
+
+    # Prefer more recent newsletters slightly when quality is similar.
+    recency_bonus = 0.0
+    try:
+        dt = datetime.strptime(ref.source_date, "%Y-%m")
+        recency_bonus = max(0.0, (dt.year - 2020) * 0.02 + dt.month * 0.002)
+    except Exception:
+        recency_bonus = 0.0
+
+    return float(overlap) + vintage_bonus + recency_bonus

@@ -145,9 +145,11 @@ Return ONLY JSON with this exact structure:
 {{
   "found": true,
   "page": 1,
+  "matched_winery": "producer name as written in the snippet",
   "matched_wine_title": "title/header text from newsletter if present",
   "blurb": "the tasting/commentary paragraph for the matching wine",
   "evidence": "a short exact quote from the snippet proving the match (<= 25 words)",
+  "exact_vintage_match": true,
   "confidence": 0.0
 }}
 
@@ -155,9 +157,11 @@ If not found, return:
 {{
   "found": false,
   "page": null,
+  "matched_winery": "",
   "matched_wine_title": "",
   "blurb": "",
   "evidence": "",
+  "exact_vintage_match": false,
   "confidence": 0.0
 }}
 
@@ -166,6 +170,8 @@ Matching rules:
 - Treat punctuation/quotes/hyphen differences as equivalent.
 - Accept reordered naming variants (e.g., winery + cuvee + region + varietal).
 - Prefer exact vintage match when present.
+- Only return found=true when the producer and wine/cuvee clearly refer to the same wine, not just a similar style.
+- If ambiguous, return found=false.
 - Do not fabricate text. Blurb and evidence must come from provided snippets.
 """
 
@@ -855,13 +861,17 @@ Wines:
                 blurb = str(result.get("blurb", "")).strip()
                 evidence = str(result.get("evidence", "")).strip()
                 matched_title = str(result.get("matched_wine_title", "")).strip()
+                matched_winery = str(result.get("matched_winery", "")).strip()
+                exact_vintage_match = bool(result.get("exact_vintage_match"))
 
                 return {
                     "found": found,
                     "page": page,
+                    "matched_winery": matched_winery,
                     "matched_wine_title": matched_title,
                     "blurb": blurb,
                     "evidence": evidence,
+                    "exact_vintage_match": exact_vintage_match,
                     "confidence": confidence,
                 }
         except json.JSONDecodeError as err:
