@@ -890,6 +890,30 @@ export class WineDetailDialog extends LitElement {
                   ? html`<div class="wine-description">${wine.description}</div>`
                   : nothing}
 
+                ${wine.kl_blurb
+                  ? html`
+                      <div class="wine-notes" style="margin-top: 10px;">
+                        <div class="detail-label" style="margin-bottom: 4px">
+                          K&L Commentary
+                          ${wine.kl_source_url
+                            ? html`
+                                <a
+                                  href=${wine.kl_source_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  style="margin-left:8px;font-weight:500;text-decoration:none;"
+                                >
+                                  ${wine.kl_source_label || "Source"}
+                                  ${wine.kl_source_date ? ` (${wine.kl_source_date})` : ""}
+                                </a>
+                              `
+                            : nothing}
+                        </div>
+                        <div class="wine-notes-text">${wine.kl_blurb}</div>
+                      </div>
+                    `
+                  : nothing}
+
                 <!-- Info chips (grape, food, alcohol, etc.) -->
                 ${wine.food_pairings || wine.alcohol || wine.grape_variety
                   ? html`

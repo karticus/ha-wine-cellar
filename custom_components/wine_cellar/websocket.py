@@ -17,20 +17,55 @@ from .const import DOMAIN
 _LOGGER = logging.getLogger(__name__)
 
 
+def _build_wine_query(wine: dict[str, Any]) -> str:
+    """Build a search query from wine fields."""
+    parts = []
+    if wine.get("winery"):
+        parts.append(wine["winery"])
+    if wine.get("name"):
+        parts.append(wine["name"])
+    if wine.get("vintage"):
+        parts.append(str(wine["vintage"]))
+    return " ".join(parts) if parts else ""
+
+
+def _kl_updates_from_result(result: dict[str, Any] | None) -> dict[str, Any]:
+    """Map KL lookup result into wine fields."""
+    if not result:
+        return {}
+    updates: dict[str, Any] = {}
+    if result.get("blurb"):
+        updates["kl_blurb"] = result["blurb"]
+    if result.get("source_url"):
+        updates["kl_source_url"] = result["source_url"]
+    if result.get("source_label"):
+        updates["kl_source_label"] = result["source_label"]
+    if result.get("source_date"):
+        updates["kl_source_date"] = result["source_date"]
+    return updates
+
+
+async def _lookup_kl_commentary(
+    hass: HomeAssistant, wine: dict[str, Any]
+) -> dict[str, Any] | None:
+    """Look up commentary from KL Wines newsletters."""
+    klwines = hass.data[DOMAIN].get("klwines")
+    if not klwines:
+        return None
+    try:
+        return await klwines.find_commentary(wine)
+    except Exception as err:
+        _LOGGER.debug("KL commentary lookup failed: %s", err)
+        return None
+
+
 async def _auto_enrich_wine(hass: HomeAssistant, wine: dict[str, Any]) -> None:
     """Background task: enrich a newly added wine with Vivino data."""
     try:
         vivino = hass.data[DOMAIN].get("vivino")
         if not vivino:
             return
-        parts = []
-        if wine.get("winery"):
-            parts.append(wine["winery"])
-        if wine.get("name"):
-            parts.append(wine["name"])
-        if wine.get("vintage"):
-            parts.append(str(wine["vintage"]))
-        query = " ".join(parts) if parts else ""
+        query = _build_wine_query(wine)
         if not query:
             return
 
@@ -59,6 +94,10 @@ async def _auto_enrich_wine(hass: HomeAssistant, wine: dict[str, Any]) -> None:
             if val and not wine.get(key):
                 updates[key] = val
 
+        # KL commentary is additive and does not replace Vivino metadata.
+        kl_result = await _lookup_kl_commentary(hass, {**wine, **lookup})
+        updates.update(_kl_updates_from_result(kl_result))
+
         if updates:
             _LOGGER.debug("Auto-enrich wine %s: %s", wine.get("id"), list(updates.keys()))
             storage.update_wine(wine["id"], updates)
@@ -74,14 +113,7 @@ async def _auto_enrich_buy_list_item(hass: HomeAssistant, item: dict[str, Any]) 
         vivino = hass.data[DOMAIN].get("vivino")
         if not vivino:
             return
-        parts = []
-        if item.get("winery"):
-            parts.append(item["winery"])
-        if item.get("name"):
-            parts.append(item["name"])
-        if item.get("vintage"):
-            parts.append(str(item["vintage"]))
-        query = " ".join(parts) if parts else ""
+        query = _build_wine_query(item)
         if not query:
             return
 
@@ -106,6 +138,9 @@ async def _auto_enrich_buy_list_item(hass: HomeAssistant, item: dict[str, Any]) 
             val = lookup.get(key)
             if val and not item.get(key):
                 updates[key] = val
+
+        kl_result = await _lookup_kl_commentary(hass, {**item, **lookup})
+        updates.update(_kl_updates_from_result(kl_result))
 
         if updates:
             storage.update_buy_list_item(item["id"], updates)
@@ -536,14 +571,7 @@ async def ws_refresh_wine(
         return
 
     # Build search query from wine name + winery + vintage
-    parts = []
-    if wine.get("winery"):
-        parts.append(wine["winery"])
-    if wine.get("name"):
-        parts.append(wine["name"])
-    if wine.get("vintage"):
-        parts.append(str(wine["vintage"]))
-    query = " ".join(parts) if parts else ""
+    query = _build_wine_query(wine)
 
     if not query:
         connection.send_result(msg["id"], {"error": "No name/winery to search."})
@@ -591,6 +619,9 @@ async def ws_refresh_wine(
         val = lookup.get(key)
         if val and not wine.get(key):
             updates[key] = val
+
+    kl_result = await _lookup_kl_commentary(hass, {**wine, **lookup})
+    updates.update(_kl_updates_from_result(kl_result))
 
     if updates:
         updated_wine = storage.update_wine(msg["wine_id"], updates)
@@ -800,14 +831,7 @@ async def ws_batch_refresh_vivino(
     for wine in wines:
         try:
             # Build search query
-            parts = []
-            if wine.get("winery"):
-                parts.append(wine["winery"])
-            if wine.get("name"):
-                parts.append(wine["name"])
-            if wine.get("vintage"):
-                parts.append(str(wine["vintage"]))
-            query = " ".join(parts) if parts else ""
+            query = _build_wine_query(wine)
 
             if not query:
                 continue
@@ -857,6 +881,9 @@ async def ws_batch_refresh_vivino(
                 val = lookup.get(key)
                 if val and not wine.get(key):
                     updates[key] = val
+
+            kl_result = await _lookup_kl_commentary(hass, {**wine, **lookup})
+            updates.update(_kl_updates_from_result(kl_result))
 
             if updates:
                 storage.update_wine(wine["id"], updates)

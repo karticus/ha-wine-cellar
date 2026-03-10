@@ -7,6 +7,6 @@
   "documentation": "https://github.com/BaconWappedBitcoin/ha-wine-cellar",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/BaconWappedBitcoin/ha-wine-cellar/issues",
-  "requirements": [],
-  "version": "2.8.0"
+  "requirements": ["pypdf==5.4.0"],
+  "version": "2.8.1"
 }

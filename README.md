@@ -70,6 +70,7 @@ A custom Home Assistant integration for managing your wine collection. Track bot
 - **Individual Vivino Refresh** — Update any single wine's Vivino data from the detail dialog
 - **Wine Search** — Search Vivino by name to find and add wines without a barcode
 - **Wine List Vivino Enrichment** — After scanning a wine list, optionally click "Get Vivino Scores" to add Vivino ratings and images to your results
+- **K&L Commentary Enrichment** — Uses K&L Wine Merchants wine club newsletters as a secondary source to add merchant tasting blurbs/commentary without overriding Vivino metadata
 
 ### Scanning & Input
 - **Camera Barcode Scanning** — Point your phone or tablet camera at a barcode to auto-lookup details from Vivino and Open Food Facts
@@ -138,6 +139,7 @@ The integration ships with 3 cabinet sections, each with 10 rows and 9 columns (
 | **Open Food Facts** | Wine name, brand, origin, country, image |
 | **UPC Item DB** | Wine name, brand (barcode lookup) |
 | **Google Gemini** | Label recognition, wine list extraction, full wine analysis (disposition, drink window, description, estimated retail price, critic rating estimates), price fallback |
+| **K&L Wine Merchants (newsletters)** | Supplemental merchant commentary blurbs linked to source newsletter month/PDF |
 
 ## Services
 

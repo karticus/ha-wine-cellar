@@ -37,6 +37,10 @@ export interface Wine {
   disposition: string;
   drink_window: string;
   ai_ratings: Record<string, number> | null;
+  kl_blurb?: string;
+  kl_source_url?: string;
+  kl_source_label?: string;
+  kl_source_date?: string;
 }
 
 export type StorageRowType = "bulk" | "box";
@@ -91,6 +95,10 @@ export interface BarcodeLookupResult {
   image_url: string;
   price: number | null;
   source: string;
+  kl_blurb?: string;
+  kl_source_url?: string;
+  kl_source_label?: string;
+  kl_source_date?: string;
 }
 
 export interface WineListItem {

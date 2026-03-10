@@ -14,6 +14,7 @@ from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import config_validation as cv
 
 from .const import DOMAIN, FRONTEND_VERSION
+from .klwines import KLWinesClient
 from .vivino import VivinoClient
 from .websocket import async_register_websocket_commands
 from .wine_storage import WineCellarStorage
@@ -135,6 +136,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Initialize Vivino client
     vivino = VivinoClient(hass)
+    klwines = KLWinesClient(hass)
 
     # Initialize Gemini client if API key is configured
     gemini_api_key = entry.options.get("gemini_api_key", "")
@@ -147,6 +149,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Store entry-specific data
     domain_data["storage"] = storage
     domain_data["vivino"] = vivino
+    domain_data["klwines"] = klwines
     domain_data["entry"] = entry
 
     # Register services
@@ -180,6 +183,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Remove entry-specific data but keep registration flags
         domain_data.pop("storage", None)
         domain_data.pop("vivino", None)
+        domain_data.pop("klwines", None)
         domain_data.pop("entry", None)
     return unload_ok
 

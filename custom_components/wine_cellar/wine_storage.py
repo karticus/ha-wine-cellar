@@ -101,9 +101,26 @@ class WineCellarStorage:
                     wine["retail_price"] = None
                 if "depth" not in wine:
                     wine["depth"] = 0
+                if "kl_blurb" not in wine:
+                    wine["kl_blurb"] = ""
+                if "kl_source_url" not in wine:
+                    wine["kl_source_url"] = ""
+                if "kl_source_label" not in wine:
+                    wine["kl_source_label"] = ""
+                if "kl_source_date" not in wine:
+                    wine["kl_source_date"] = ""
             # Migrate: ensure buy_list exists
             if CONF_BUY_LIST not in self._data:
                 self._data[CONF_BUY_LIST] = []
+            for item in self._data.get(CONF_BUY_LIST, []):
+                if "kl_blurb" not in item:
+                    item["kl_blurb"] = ""
+                if "kl_source_url" not in item:
+                    item["kl_source_url"] = ""
+                if "kl_source_label" not in item:
+                    item["kl_source_label"] = ""
+                if "kl_source_date" not in item:
+                    item["kl_source_date"] = ""
             # Migrate: ensure wine_history exists
             if CONF_WINE_HISTORY not in self._data:
                 self._data[CONF_WINE_HISTORY] = []
@@ -145,6 +162,10 @@ class WineCellarStorage:
             "disposition": wine_data.get("disposition", ""),
             "drink_window": wine_data.get("drink_window", ""),
             "ai_ratings": wine_data.get("ai_ratings"),
+            "kl_blurb": wine_data.get("kl_blurb", ""),
+            "kl_source_url": wine_data.get("kl_source_url", ""),
+            "kl_source_label": wine_data.get("kl_source_label", ""),
+            "kl_source_date": wine_data.get("kl_source_date", ""),
             "added_at": datetime.now(timezone.utc).isoformat(),
         }
         self._data[CONF_WINES].append(wine)
@@ -331,6 +352,10 @@ class WineCellarStorage:
             "ai_ratings": wine_data.get("ai_ratings"),
             "disposition": wine_data.get("disposition", ""),
             "drink_window": wine_data.get("drink_window", ""),
+            "kl_blurb": wine_data.get("kl_blurb", ""),
+            "kl_source_url": wine_data.get("kl_source_url", ""),
+            "kl_source_label": wine_data.get("kl_source_label", ""),
+            "kl_source_date": wine_data.get("kl_source_date", ""),
             "added_at": datetime.now(timezone.utc).isoformat(),
         }
         self._data.setdefault(CONF_BUY_LIST, []).append(item)

@@ -2001,6 +2001,30 @@ let WineDetailDialog = class WineDetailDialog extends i {
                 ? b `<div class="wine-description">${wine.description}</div>`
                 : A}
 
+                ${wine.kl_blurb
+                ? b `
+                      <div class="wine-notes" style="margin-top: 10px;">
+                        <div class="detail-label" style="margin-bottom: 4px">
+                          K&L Commentary
+                          ${wine.kl_source_url
+                    ? b `
+                                <a
+                                  href=${wine.kl_source_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  style="margin-left:8px;font-weight:500;text-decoration:none;"
+                                >
+                                  ${wine.kl_source_label || "Source"}
+                                  ${wine.kl_source_date ? ` (${wine.kl_source_date})` : ""}
+                                </a>
+                              `
+                    : A}
+                        </div>
+                        <div class="wine-notes-text">${wine.kl_blurb}</div>
+                      </div>
+                    `
+                : A}
+
                 <!-- Info chips (grape, food, alcohol, etc.) -->
                 ${wine.food_pairings || wine.alcohol || wine.grape_variety
                 ? b `
