@@ -9,7 +9,7 @@ import io
 import logging
 import re
 from typing import Any
-from urllib.parse import urljoin
+from urllib.parse import unquote, urljoin
 
 import aiohttp
 from pypdf import PdfReader
@@ -21,6 +21,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 _LOGGER = logging.getLogger(__name__)
 
 NEWSLETTERS_URL = "https://onthetrail.klwines.com/newsletters-clubs"
+NEWSLETTERS_RSS_URL = f"{NEWSLETTERS_URL}?format=rss"
 MAX_NEWSLETTERS = 8
 CACHE_TTL = timedelta(hours=24)
 MATCH_THRESHOLD = 4
@@ -213,43 +214,46 @@ class KLWinesClient:
         """Fetch month->PDF links from KL Wines newsletters page."""
         session = async_get_clientsession(self._hass)
         timeout = aiohttp.ClientTimeout(total=20)
-        headers = {"User-Agent": "Mozilla/5.0", "Accept": "text/html"}
-
-        try:
-            async with session.get(NEWSLETTERS_URL, timeout=timeout, headers=headers) as resp:
-                if resp.status != 200:
-                    _LOGGER.debug("KL newsletters page status %s", resp.status)
-                    return []
-                html = await resp.text()
-        except Exception as err:
-            _LOGGER.debug("KL newsletters page fetch failed: %s", err)
-            return []
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            ),
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Referer": "https://onthetrail.klwines.com/",
+        }
 
         refs: list[_NewsletterRef] = []
-        seen_urls: set[str] = set()
 
-        for href, label_html in re.findall(
-            r'<a[^>]+href="([^"]+)"[^>]*>(.*?)</a>',
-            html,
-            flags=re.IGNORECASE | re.DOTALL,
-        ):
-            label = _collapse_ws(_strip_tags(unescape(label_html)))
-            parsed = _parse_month_year(label)
-            if not parsed:
-                continue
+        # Primary path: parse the newsletters page HTML.
+        try:
+            async with session.get(
+                NEWSLETTERS_URL, timeout=timeout, headers=headers
+            ) as resp:
+                if resp.status == 200:
+                    html = await resp.text()
+                    refs = _extract_newsletter_refs_from_html(html)
+                else:
+                    _LOGGER.debug("KL newsletters page status %s", resp.status)
+        except Exception as err:
+            _LOGGER.debug("KL newsletters page fetch failed: %s", err)
 
-            url = urljoin(NEWSLETTERS_URL, unescape(href))
-            if not url.lower().endswith(".pdf") or url in seen_urls:
-                continue
-
-            seen_urls.add(url)
-            refs.append(
-                _NewsletterRef(
-                    label=label,
-                    source_date=parsed.strftime("%Y-%m"),
-                    url=url,
-                )
-            )
+        # Fallback path: parse Squarespace RSS if HTML page is blocked/empty.
+        if not refs:
+            rss_headers = dict(headers)
+            rss_headers["Accept"] = "application/rss+xml,application/xml;q=0.9,*/*;q=0.8"
+            try:
+                async with session.get(
+                    NEWSLETTERS_RSS_URL, timeout=timeout, headers=rss_headers
+                ) as resp:
+                    if resp.status == 200:
+                        rss = await resp.text()
+                        refs = _extract_newsletter_refs_from_rss(rss)
+                    else:
+                        _LOGGER.debug("KL newsletters RSS status %s", resp.status)
+            except Exception as err:
+                _LOGGER.debug("KL newsletters RSS fetch failed: %s", err)
 
         refs.sort(key=lambda r: r.source_date, reverse=True)
         return refs
@@ -480,6 +484,80 @@ def _is_debug_target_wine(wine: dict[str, Any]) -> bool:
         return True
     name = f"{wine.get('winery', '')} {wine.get('name', '')}".lower()
     return DEBUG_KEYWORD in name
+
+
+def _extract_newsletter_refs_from_html(html: str) -> list[_NewsletterRef]:
+    refs: list[_NewsletterRef] = []
+    seen_urls: set[str] = set()
+    for href, label_html in re.findall(
+        r'<a[^>]+href="([^"]+)"[^>]*>(.*?)</a>',
+        html,
+        flags=re.IGNORECASE | re.DOTALL,
+    ):
+        label = _collapse_ws(_strip_tags(unescape(label_html)))
+        parsed = _parse_month_year(label)
+        if not parsed:
+            continue
+        url = urljoin(NEWSLETTERS_URL, unescape(href))
+        if not url.lower().endswith(".pdf") or url in seen_urls:
+            continue
+        seen_urls.add(url)
+        refs.append(
+            _NewsletterRef(
+                label=label,
+                source_date=parsed.strftime("%Y-%m"),
+                url=url,
+            )
+        )
+    return refs
+
+
+def _extract_newsletter_refs_from_rss(rss: str) -> list[_NewsletterRef]:
+    refs: list[_NewsletterRef] = []
+    seen_urls: set[str] = set()
+
+    for item in re.findall(r"<item\b.*?>.*?</item>", rss, flags=re.IGNORECASE | re.DOTALL):
+        title_match = re.search(
+            r"<title>(.*?)</title>", item, flags=re.IGNORECASE | re.DOTALL
+        )
+        title_text = _collapse_ws(_strip_tags(unescape(title_match.group(1)))) if title_match else ""
+        date = _parse_month_year(title_text)
+
+        for href in re.findall(r"https?://[^\"'<>\s]+\.pdf", item, flags=re.IGNORECASE):
+            url = unescape(href)
+            if url in seen_urls:
+                continue
+            if not date:
+                date = _parse_month_year_from_url(url)
+            if not date:
+                continue
+            seen_urls.add(url)
+            refs.append(
+                _NewsletterRef(
+                    label=title_text or date.strftime("%B %Y"),
+                    source_date=date.strftime("%Y-%m"),
+                    url=url,
+                )
+            )
+    return refs
+
+
+def _parse_month_year_from_url(url: str) -> datetime | None:
+    name = unquote(url.rsplit("/", 1)[-1]).replace("+", " ")
+    # Handles filenames like "Wine Club Newsletter February 2026.pdf"
+    match = re.search(
+        r"\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(20\d{2}|19\d{2})\b",
+        name,
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return None
+    month = match.group(1).title()
+    year = match.group(2)
+    try:
+        return datetime.strptime(f"{month} {year}", "%B %Y")
+    except ValueError:
+        return None
 
 
 def _select_candidate_pages_for_wine(
