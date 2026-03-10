@@ -22,6 +22,9 @@ _LOGGER = logging.getLogger(__name__)
 NEWSLETTERS_URL = "https://onthetrail.klwines.com/newsletters-clubs"
 MAX_NEWSLETTERS = 8
 CACHE_TTL = timedelta(hours=24)
+MATCH_THRESHOLD = 4
+DEBUG_WINE_ID = "7b87734c-3a7b-4ceb-943f-ff7ef0d5a6e9"
+DEBUG_KEYWORD = "madrigal"
 
 STOPWORDS = {
     "a",
@@ -69,33 +72,94 @@ class KLWinesClient:
 
     async def find_commentary(self, wine: dict[str, Any]) -> dict[str, Any] | None:
         """Return best-match KL blurb for a wine."""
+        debug_target = _is_debug_target_wine(wine)
+        if debug_target:
+            _LOGGER.debug(
+                "KL DEBUG target wine id=%s winery='%s' name='%s' vintage=%s",
+                wine.get("id", ""),
+                wine.get("winery", ""),
+                wine.get("name", ""),
+                wine.get("vintage", ""),
+            )
+            _LOGGER.debug(
+                "KL DEBUG header patterns: /^(19|20)\\d{2} ... Club:\\s*\\$/ OR /^(19|20)\\d{2} ... (\\$.../"
+            )
+            _LOGGER.debug("KL DEBUG match threshold=%s", MATCH_THRESHOLD)
+
         await self._ensure_loaded()
         if not self._sections:
+            if debug_target:
+                _LOGGER.debug("KL DEBUG no sections loaded")
             return None
 
         tokens = _tokenize_for_match(
             f"{wine.get('winery', '')} {wine.get('name', '')}"
         )
+        if debug_target:
+            _LOGGER.debug("KL DEBUG tokens=%s", sorted(tokens))
         if not tokens:
+            if debug_target:
+                _LOGGER.debug("KL DEBUG no tokens extracted from winery+name")
             return None
         vintage = wine.get("vintage")
 
         best_score = 0
         best: _BlurbSection | None = None
+        scored: list[tuple[int, str, _BlurbSection]] = []
 
         for section in self._sections:
-            score = _section_score(section, tokens, vintage)
+            score, reason = _section_score_details(section, tokens, vintage)
             if score > best_score:
                 best_score = score
                 best = section
+            if debug_target:
+                scored.append((score, reason, section))
 
         # Require a minimum match quality to avoid random blurbs.
-        if not best or best_score < 4:
+        if debug_target:
+            matched_keyword = [
+                s
+                for s in self._sections
+                if DEBUG_KEYWORD in f"{s.title} {s.body}".lower()
+            ]
+            _LOGGER.debug(
+                "KL DEBUG sections loaded=%d sections_containing_%s=%d",
+                len(self._sections),
+                DEBUG_KEYWORD,
+                len(matched_keyword),
+            )
+            for idx, (score, reason, section) in enumerate(
+                sorted(scored, key=lambda x: x[0], reverse=True)[:8], start=1
+            ):
+                _LOGGER.debug(
+                    "KL DEBUG cand#%d score=%d reason=%s source='%s' title='%s'",
+                    idx,
+                    score,
+                    reason,
+                    section.source_label,
+                    section.title[:180],
+                )
+
+        if not best or best_score < MATCH_THRESHOLD:
+            if debug_target:
+                _LOGGER.debug(
+                    "KL DEBUG no match: best_score=%d < threshold=%d",
+                    best_score,
+                    MATCH_THRESHOLD,
+                )
             return None
 
         blurb = best.body.strip() or best.title.strip()
         if len(blurb) > 1800:
             blurb = blurb[:1797].rstrip() + "..."
+
+        if debug_target:
+            _LOGGER.debug(
+                "KL DEBUG selected score=%d source='%s' title='%s'",
+                best_score,
+                best.source_label,
+                best.title[:180],
+            )
 
         return {
             "blurb": blurb,
@@ -113,13 +177,21 @@ class KLWinesClient:
         refs = await self._fetch_newsletter_refs()
         if not refs:
             return
+        _LOGGER.debug("KL loaded %d newsletter refs from index page", len(refs))
 
         sections: list[_BlurbSection] = []
         for ref in refs[:MAX_NEWSLETTERS]:
             text = await self._fetch_pdf_text(ref.url)
             if not text:
                 continue
-            sections.extend(_extract_blurb_sections(text, ref))
+            extracted = _extract_blurb_sections(text, ref)
+            _LOGGER.debug(
+                "KL extracted %d sections from newsletter '%s' (%s)",
+                len(extracted),
+                ref.label,
+                ref.url,
+            )
+            sections.extend(extracted)
 
         if sections:
             self._sections = sections
@@ -242,16 +314,29 @@ def _extract_blurb_sections(text: str, ref: _NewsletterRef) -> list[_BlurbSectio
 
 
 def _section_score(section: _BlurbSection, tokens: set[str], vintage: Any) -> int:
+    score, _ = _section_score_details(section, tokens, vintage)
+    return score
+
+
+def _section_score_details(
+    section: _BlurbSection, tokens: set[str], vintage: Any
+) -> tuple[int, str]:
     title_text = f"{section.title} {section.body}".lower()
     score = 0
+    hit_tokens: list[str] = []
     for token in tokens:
         if token in title_text:
             score += 2
+            hit_tokens.append(token)
 
     sec_vintage = _extract_vintage(section.title)
+    vintage_bonus = False
     if vintage and isinstance(vintage, int) and sec_vintage == vintage:
         score += 3
-    return score
+        vintage_bonus = True
+
+    reason = f"token_hits={sorted(hit_tokens)} vintage_match={vintage_bonus}"
+    return score, reason
 
 
 def _looks_like_wine_header(line: str) -> bool:
@@ -285,3 +370,11 @@ def _strip_tags(text: str) -> str:
 
 def _collapse_ws(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
+
+
+def _is_debug_target_wine(wine: dict[str, Any]) -> bool:
+    """Enable deep KL debug logs for one known target wine."""
+    if wine.get("id") == DEBUG_WINE_ID:
+        return True
+    name = f"{wine.get('winery', '')} {wine.get('name', '')}".lower()
+    return DEBUG_KEYWORD in name
