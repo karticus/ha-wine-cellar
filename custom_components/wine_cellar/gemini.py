@@ -171,6 +171,8 @@ Matching rules:
 - Accept reordered naming variants (e.g., winery + cuvee + region + varietal).
 - Prefer exact vintage match when present.
 - Only return found=true when the producer and wine/cuvee clearly refer to the same wine, not just a similar style.
+- Ignore generic producer words when deciding identity similarity: "family", "winery", "cellars", "vineyards", "estate", "reserve", "wines", "wine".
+- Prioritize distinctive tokens (producer name, cuvee, varietal, region) over generic words.
 - If ambiguous, return found=false.
 - Do not fabricate text. Blurb and evidence must come from provided snippets.
 """
